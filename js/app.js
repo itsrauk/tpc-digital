@@ -5,6 +5,7 @@ const Router = (() => {
     students:  StudentsModule,
     courses:   CoursesModule,
     teachers:  TeachersModule,
+    history:   HistoryModule,
     financial: FinancialModule,
     settings:  SettingsModule,
   };
@@ -13,7 +14,7 @@ const Router = (() => {
 
   function navigate(view) {
     if (!routes[view]) return;
-    if ((view === 'financial' || view === 'settings') && !Auth.isAdmin()) return;
+    if ((view === 'financial' || view === 'settings' || view === 'history') && !Auth.isAdmin()) return;
 
     currentView = view;
     document.querySelectorAll('.nav-item').forEach(el => {
@@ -22,7 +23,7 @@ const Router = (() => {
 
     const viewTitle = {
       dashboard: 'Dashboard', students: 'Alunos', courses: 'Turmas',
-      teachers: 'Professores', financial: 'Financeiro', settings: 'Configuracoes'
+      teachers: 'Professores', history: 'Historico', financial: 'Financeiro', settings: 'Configuracoes'
     };
     document.getElementById('page-title').textContent = viewTitle[view] || '';
 
@@ -70,6 +71,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const profile = Auth.getProfile();
   document.getElementById('user-name').textContent = profile?.name || 'Usuário';
   document.getElementById('user-role').textContent = profile?.role === 'admin' ? 'Administrador' : 'Professor';
+
+  const historyNav  = document.getElementById('nav-history');
+  if (historyNav)  historyNav.style.display  = Auth.isAdmin() ? 'flex' : 'none';
 
   const financialNav = document.getElementById('nav-financial');
   if (financialNav) financialNav.style.display = Auth.isAdmin() ? 'flex' : 'none';

@@ -256,6 +256,12 @@ const CoursesModule = (() => {
         : (' ' + error.message);
       return toast('Erro ao registrar frequencia.' + hint, 'error');
     }
+    const { data: studentInfo } = await db.from('enrollments')
+      .select('students(name)').eq('id', enrollmentId).single();
+    AuditLog.log('attendance_registered', 'attendance', enrollmentId,
+      studentInfo?.students?.name,
+      `Frequencia registrada: ${studentInfo?.students?.name || 'aluno'} — ${date} (${status === 'present' ? 'Presente' : 'Falta'})`);
+
     toast('Frequencia registrada.', 'success');
     closeModal();
   }
@@ -402,9 +408,13 @@ const CoursesModule = (() => {
       if (id) {
         const { error } = await db.from('classes').update(payload).eq('id', id);
         if (error) throw error;
+        AuditLog.log('class_updated', 'class', id, payload.teacher_name || data.teacher_id,
+          `Turma atualizada: ${payload.teacher_name || 'turma'}`);
       } else {
-        const { error } = await db.from('classes').insert([payload]);
+        const { data: newClass, error } = await db.from('classes').insert([payload]).select().single();
         if (error) throw error;
+        AuditLog.log('class_created', 'class', newClass?.id, payload.teacher_name || data.teacher_id,
+          `Nova turma criada — Professor: ${payload.teacher_name || '—'}`);
       }
 
       toast(id ? 'Turma atualizada.' : 'Turma criada.', 'success');

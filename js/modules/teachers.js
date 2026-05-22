@@ -275,6 +275,8 @@ const TeachersModule = (() => {
           days_at_school: selectedDays || null,
         }).eq('id', id);
         if (error) throw error;
+        AuditLog.log('teacher_updated', 'teacher', id, data.name,
+          `Perfil do professor ${data.name} atualizado`);
         toast('Professor atualizado.', 'success');
         closeModal();
 

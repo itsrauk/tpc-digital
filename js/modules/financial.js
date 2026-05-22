@@ -230,6 +230,11 @@ const FinancialModule = (() => {
 
     const { error } = await db.from('payments').update(updatePayload).eq('id', id);
     if (error) return toast('Erro ao atualizar pagamento.', 'error');
+
+    const p = allPayments.find(x => x.id === id);
+    AuditLog.log('payment_paid', 'payment', id, p?.students?.name,
+      `Pagamento confirmado: ${p?.students?.name || '—'} — parcela ${p?.installment_number || '?'} de ${formatCurrency(effectiveAmount || p?.amount || 0)}`);
+
     toast('Pagamento registrado.', 'success');
     await loadFinancial();
   }
@@ -237,10 +242,15 @@ const FinancialModule = (() => {
   async function markPending(id) {
     const confirmed = await confirmDialog('Estornar este pagamento? O status voltará para Pendente.');
     if (!confirmed) return;
+    const p = allPayments.find(x => x.id === id);
     const { error } = await db.from('payments')
       .update({ status: 'pending', paid_date: null })
       .eq('id', id);
     if (error) return toast('Erro ao estornar.', 'error');
+
+    AuditLog.log('payment_reversed', 'payment', id, p?.students?.name,
+      `Pagamento estornado: ${p?.students?.name || '—'} — parcela ${p?.installment_number || '?'}`);
+
     toast('Estorno realizado.', 'success');
     await loadFinancial();
   }
@@ -321,6 +331,11 @@ const FinancialModule = (() => {
     }).eq('id', id);
 
     if (error) return toast('Erro ao salvar.', 'error');
+
+    const p = allPayments.find(x => x.id === id);
+    AuditLog.log('payment_updated', 'payment', id, p?.students?.name,
+      `Lancamento editado: ${p?.students?.name || '—'} — parcela ${p?.installment_number || '?'}`);
+
     toast('Lancamento atualizado.', 'success');
     closeModal();
     await loadFinancial();

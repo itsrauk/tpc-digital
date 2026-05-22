@@ -646,6 +646,8 @@ const StudentsModule = (() => {
       if (isEdit) {
         const { error } = await db.from('students').update(studentData).eq('id', id);
         if (error) throw error;
+        AuditLog.log('student_updated', 'student', id, studentData.name,
+          `Cadastro do aluno ${studentData.name} atualizado`);
       } else {
         // Gerar RA no cliente
         const { count, error: countErr } = await db.from('students').select('*', { count: 'exact', head: true });
@@ -664,6 +666,8 @@ const StudentsModule = (() => {
           throw insertErr;
         }
         studentId = newStudents[0].id;
+        AuditLog.log('student_created', 'student', studentId, studentData.name,
+          `Novo aluno cadastrado: ${studentData.name} (RA: ${studentData.ra})`);
       }
 
       // Salvar matrícula
@@ -727,6 +731,9 @@ const StudentsModule = (() => {
           await db.from('payments').insert(paymentsToInsert);
         }
 
+        AuditLog.log('enrollment_created', 'enrollment', newEnrollment[0].id, studentData.name,
+          `Matricula criada: ${studentData.name} em ${enrollmentData.piece_course || 'turma'} — ${installments}x de ${formatCurrency(discountedInstallment)}`);
+
         // Nova matricula: recarrega lista e oferece download do contrato
         await loadStudents();
         let courseType = 'regular';
@@ -765,6 +772,10 @@ const StudentsModule = (() => {
 
     const { error } = await db.from('students').delete().eq('id', id);
     if (error) return toast('Erro ao excluir aluno.', 'error');
+
+    AuditLog.log('student_deleted', 'student', id, student?.name,
+      `Aluno excluido: ${student?.name} (RA: ${student?.ra || '—'})`);
+
     toast('Aluno excluído.', 'success');
     await loadStudents();
   }

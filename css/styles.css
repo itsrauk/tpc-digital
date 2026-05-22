@@ -1077,6 +1077,73 @@ textarea.input {
   color: var(--text-muted);
 }
 
+/* ─── Histórico / Audit Log ───────────────────────────────────── */
+.history-day-group { margin-bottom: 2rem; }
+
+.history-day-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  padding: 0 0 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.75rem;
+}
+
+.history-entries { display: flex; flex-direction: column; gap: 2px; }
+
+.history-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  transition: background var(--transition);
+}
+.history-entry:hover { background: var(--bg-surface); }
+
+.history-entry-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.history-entry-icon svg { width: 15px; height: 15px; }
+
+.history-entry-icon.badge-success { background: var(--success-bg); color: var(--success); }
+.history-entry-icon.badge-danger  { background: var(--danger-bg);  color: var(--danger);  }
+.history-entry-icon.badge-warning { background: var(--warning-bg); color: var(--warning); }
+.history-entry-icon.badge-info    { background: rgba(52,152,219,.12); color: var(--info);  }
+.history-entry-icon.badge-default { background: var(--bg-active);  color: var(--text-secondary); }
+
+.history-entry-body { flex: 1; min-width: 0; }
+
+.history-entry-desc {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.history-entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.history-entry-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
 /* ─── Scrollbar ───────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
