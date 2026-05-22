@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TPC Digital - Primeiro Acesso</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    .register-step { display: none; }
+    .register-step.active { display: block; }
+    .info-box {
+      background: var(--accent-glow);
+      border: 1px solid rgba(200,169,95,0.3);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+    .info-box strong { color: var(--accent); }
+    .success-box {
+      background: var(--success-bg);
+      border: 1px solid rgba(46,204,113,0.3);
+      border-radius: var(--radius);
+      padding: 16px;
+      text-align: center;
+      color: var(--success);
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    .login-btn-submit {
+      width: 100%;
+      height: 40px;
+      background: var(--accent);
+      color: #0d0d0d;
+      font-weight: 700;
+      font-size: 13px;
+      border-radius: var(--radius);
+      transition: background var(--transition);
+      margin-top: 4px;
+    }
+    .login-btn-submit:hover:not(:disabled) { background: var(--accent-dark); }
+    .login-btn-submit:disabled { opacity: 0.6; }
+    .back-link {
+      display: block;
+      text-align: center;
+      margin-top: 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .back-link a { color: var(--accent); }
+    .name-display {
+      background: var(--bg-primary);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 8px 12px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent);
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-page">
+    <div class="login-box">
+
+      <div class="login-logo">
+        <div class="login-logo-name">TPC Digital</div>
+        <div class="login-divider"></div>
+        <div class="login-logo-sub">Primeiro Acesso — Professores</div>
+      </div>
+
+      <!-- Etapa 1: verificar e-mail -->
+      <div class="register-step active" id="step-email">
+        <div class="info-box">
+          Utilize o <strong>e-mail cadastrado pelo administrador</strong> para criar sua senha de acesso.
+        </div>
+        <div class="login-form">
+          <div id="step1-error" class="login-error">
+            E-mail nao encontrado. Solicite ao administrador que crie seu convite.
+          </div>
+          <div class="login-form-group">
+            <label>E-mail</label>
+            <input type="email" id="reg-email" class="input" placeholder="seu@email.com" autocomplete="email">
+          </div>
+          <button class="login-btn-submit" id="btn-check-email">Verificar E-mail</button>
+        </div>
+      </div>
+
+      <!-- Etapa 2: definir senha -->
+      <div class="register-step" id="step-password">
+        <div class="info-box">
+          Bem-vindo(a), <strong id="teacher-name-display">—</strong>! Defina sua senha de acesso.
+        </div>
+        <div class="login-form">
+          <div id="step2-error" class="login-error">Ocorreu um erro. Tente novamente.</div>
+          <div class="login-form-group">
+            <label>E-mail confirmado</label>
+            <div class="name-display" id="confirmed-email-display">—</div>
+          </div>
+          <div class="login-form-group">
+            <label>Senha *</label>
+            <input type="password" id="reg-password" class="input"
+              placeholder="Minimo 6 caracteres" minlength="6" autocomplete="new-password">
+          </div>
+          <div class="login-form-group">
+            <label>Confirmar Senha *</label>
+            <input type="password" id="reg-password-confirm" class="input"
+              placeholder="Repita a senha" autocomplete="new-password">
+          </div>
+          <button class="login-btn-submit" id="btn-create-account">Criar Minha Conta</button>
+        </div>
+      </div>
+
+      <!-- Etapa 3: sucesso -->
+      <div class="register-step" id="step-success">
+        <div class="success-box">
+          <div style="font-size:32px; margin-bottom:10px;">&#10003;</div>
+          <strong>Conta criada com sucesso!</strong><br>
+          Voce ja pode acessar o sistema com seu e-mail e senha.
+          <br><br>
+          <a href="index.html" class="btn btn-primary" style="display:inline-flex; margin:0 auto;">
+            Ir para o Login
+          </a>
+        </div>
+      </div>
+
+      <div class="back-link">
+        <a href="index.html">Voltar para o login</a>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/config.js"></script>
+  <script>
+    let inviteData = null;
+
+    function showStep(id) {
+      document.querySelectorAll('.register-step').forEach(s => s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+    }
+
+    // ─── Etapa 1: verificar e-mail no teacher_invites ─────────
+    document.getElementById('btn-check-email').addEventListener('click', async () => {
+      const email = document.getElementById('reg-email').value.trim().toLowerCase();
+      const errEl = document.getElementById('step1-error');
+      errEl.style.display = 'none';
+
+      if (!email) return;
+
+      const btn = document.getElementById('btn-check-email');
+      btn.disabled = true;
+      btn.textContent = 'Verificando...';
+
+      const { data, error } = await db.from('teacher_invites')
+        .select('*').eq('email', email).eq('used', false).maybeSingle();
+
+      if (error || !data) {
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Verificar E-mail';
+        return;
+      }
+
+      inviteData = data;
+      document.getElementById('teacher-name-display').textContent  = data.name;
+      document.getElementById('confirmed-email-display').textContent = email;
+      showStep('step-password');
+    });
+
+    // ─── Etapa 2: criar conta ─────────────────────────────────
+    document.getElementById('btn-create-account').addEventListener('click', async () => {
+      const password = document.getElementById('reg-password').value;
+      const confirm  = document.getElementById('reg-password-confirm').value;
+      const errEl    = document.getElementById('step2-error');
+      errEl.style.display = 'none';
+
+      if (password.length < 6) {
+        errEl.textContent = 'A senha deve ter no minimo 6 caracteres.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (password !== confirm) {
+        errEl.textContent = 'As senhas nao conferem.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      const btn = document.getElementById('btn-create-account');
+      btn.disabled = true;
+      btn.textContent = 'Criando conta...';
+
+      try {
+        const email = inviteData.email;
+
+        // 1. Criar usuário no Supabase Auth
+        const { data: authData, error: authErr } = await db.auth.signUp({ email, password });
+        if (authErr) throw authErr;
+
+        const userId = authData?.user?.id;
+        if (!userId) throw new Error('Nao foi possivel obter o ID do usuario criado. Verifique se o email já está cadastrado.');
+
+        // 2. Criar perfil de professor
+        const { error: profileErr } = await db.from('profiles').insert([{
+          id:   userId,
+          name: inviteData.name,
+          role: 'teacher'
+        }]);
+        if (profileErr) throw profileErr;
+
+        // 3. Marcar convite como usado
+        await db.from('teacher_invites').update({ used: true }).eq('id', inviteData.id);
+
+        showStep('step-success');
+
+      } catch (err) {
+        errEl.textContent = 'Erro: ' + (err.message || 'Tente novamente.');
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Criar Minha Conta';
+      }
+    });
+  </script>
+</body>
+</html>

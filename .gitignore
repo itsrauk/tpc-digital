@@ -1,0 +1,15 @@
+# Claude Code
+.claude/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Editor
+.vscode/settings.json
+*.suo
+*.user
