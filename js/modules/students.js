@@ -89,12 +89,14 @@ const StudentsModule = (() => {
 
   function renderRows(isAdmin) {
     return allStudents.map(s => {
-      const activeEnrollment = s.enrollments?.find(e => e.status === 'active');
+      const activeEnrollments = s.enrollments?.filter(e => e.status === 'active') || [];
+      const activeEnrollment  = activeEnrollments[0];
       const courseName = activeEnrollment?.classes?.courses?.name
         || activeEnrollment?.piece_course || '—';
       const teacher = activeEnrollment?.classes?.profiles?.name
         || activeEnrollment?.responsible_teacher || '—';
       const age = calcAge(s.birth_date);
+      const multiEnroll = activeEnrollments.length > 1;
 
       return `<tr data-id="${s.id}">
         ${isAdmin ? `<td class="col-check">
@@ -102,7 +104,9 @@ const StudentsModule = (() => {
             onchange="StudentsModule.toggleRow(this)">
         </td>` : ''}
         <td>
-          <div class="cell-name">${escapeHtml(s.name)}</div>
+          <div class="cell-name">${escapeHtml(s.name)}${multiEnroll
+            ? ` <span class="badge badge-info" style="font-size:0.7rem;padding:1px 5px;margin-left:4px;">${activeEnrollments.length} matr.</span>`
+            : ''}</div>
           <div class="cell-sub">${age !== null ? age + ' anos' : ''} ${s.student_phone ? '· ' + s.student_phone : ''}</div>
         </td>
         <td class="text-accent">${escapeHtml(s.ra || '—')}</td>
@@ -199,19 +203,38 @@ const StudentsModule = (() => {
         </div>
 
         <div class="detail-section">
-          <h3 class="detail-section-title">Matriculas</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+            <h3 class="detail-section-title" style="margin:0;">Matriculas</h3>
+            ${Auth.isAdmin() ? `
+            <button class="btn btn-primary btn-sm"
+              onclick="StudentsModule.openEnrollmentForm('${id}')">+ Nova Matricula</button>
+            ` : ''}
+          </div>
           ${enrollments?.length ? enrollments.map(e => `
             <div class="enrollment-card">
-              <div class="enrollment-course">${escapeHtml(e.classes?.courses?.name || e.piece_course || '—')}</div>
+              <div class="enrollment-card-header">
+                <div class="enrollment-course">${escapeHtml(e.classes?.courses?.name || e.piece_course || '—')}</div>
+                <span class="badge badge-${e.status === 'active' ? 'success' : 'secondary'}">
+                  ${STATUS_LABELS[e.status] || e.status}
+                </span>
+              </div>
               <div class="enrollment-meta">
                 Professor: ${escapeHtml(e.classes?.profiles?.name || e.responsible_teacher || '—')}<br>
                 Periodo: ${fmtPeriodDisplay(e.period_start, e.period_end)}<br>
                 Carga: ${escapeHtml(e.workload_label || '—')}<br>
                 Valor: ${formatCurrency(e.total_value)} (${e.payment_installments}x)
               </div>
-              <span class="badge badge-${e.status === 'active' ? 'success' : 'secondary'}">
-                ${STATUS_LABELS[e.status] || e.status}
-              </span>
+              ${e.status === 'active' && Auth.isAdmin() ? `
+              <div class="enrollment-actions">
+                <button class="btn btn-secondary btn-sm"
+                  onclick="StudentsModule.exportEnrollmentContract('${id}', '${e.id}')">
+                  Contrato
+                </button>
+                <button class="btn btn-danger btn-sm"
+                  onclick="StudentsModule.cancelEnrollment('${e.id}', '${id}')">
+                  Cancelar
+                </button>
+              </div>` : ''}
             </div>`).join('') : '<p class="empty-state">Sem matriculas.</p>'}
 
           <h3 class="detail-section-title mt-4">Pagamentos</h3>
@@ -360,7 +383,7 @@ const StudentsModule = (() => {
       `<option value="Personalizado" ${isCustomWorkload ? 'selected' : ''}>Personalizado</option>`,
     ].join('');
 
-    openModal(isEdit ? 'Editar Matricula' : 'Nova Matricula', `
+    openModal(isEdit ? 'Editar Dados do Aluno' : 'Nova Matricula', `
       <form id="student-form" onsubmit="StudentsModule.saveStudent(event, '${id || ''}')">
         <div class="form-sections">
 
@@ -468,6 +491,7 @@ const StudentsModule = (() => {
             </div>
           </div>
 
+          ${!isEdit ? `
           <div class="form-section">
             <h3 class="form-section-title">Bloco 2 — Dados do Contrato e Pagamento</h3>
             <div class="form-grid">
@@ -526,8 +550,7 @@ const StudentsModule = (() => {
               </div>
               <div class="form-group">
                 <label>Horario da Aula</label>
-                <input type="time" name="schedule" class="input"
-                  value="${enrollment?.classes ? '' : ''}">
+                <input type="time" name="schedule" class="input">
               </div>
               <div class="form-group">
                 <label>Valor Total do Contrato (R$) *</label>
@@ -559,13 +582,13 @@ const StudentsModule = (() => {
                   placeholder="Descreva o plano de pagamento acordado">${escapeHtml(enrollment?.payment_plan || '')}</textarea>
               </div>
             </div>
-          </div>
+          </div>` : ''}
         </div>
 
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
           <button type="submit" class="btn btn-primary">
-            ${isEdit ? 'Salvar Alteracoes' : 'Realizar Matricula'}
+            ${isEdit ? 'Salvar Dados' : 'Realizar Matricula'}
           </button>
         </div>
       </form>
@@ -648,6 +671,10 @@ const StudentsModule = (() => {
         if (error) throw error;
         AuditLog.log('student_updated', 'student', id, studentData.name,
           `Cadastro do aluno ${studentData.name} atualizado`);
+        toast('Dados do aluno atualizados com sucesso.', 'success');
+        closeModal();
+        await loadStudents();
+        return;
       } else {
         // Gerar RA no cliente
         const { count, error: countErr } = await db.from('students').select('*', { count: 'exact', head: true });
@@ -697,63 +724,48 @@ const StudentsModule = (() => {
         status: 'active',
       };
 
-      if (isEdit) {
-        const { data: existEnrollment } = await db.from('enrollments')
-          .select('id').eq('student_id', id).eq('status', 'active').single();
-        if (existEnrollment) {
-          await db.from('enrollments').update(enrollmentData).eq('id', existEnrollment.id);
-        } else {
-          await db.from('enrollments').insert([enrollmentData]);
-        }
-      } else {
-        const { data: newEnrollment, error: eErr } = await db.from('enrollments')
-          .insert([enrollmentData]).select();
-        if (eErr) throw eErr;
+      // Nova matricula: criar enrollment + parcelas
+      const { data: newEnrollment, error: eErr } = await db.from('enrollments')
+        .insert([enrollmentData]).select();
+      if (eErr) throw eErr;
 
-        // Gerar parcelas com vencimento no dia 12
-        // amount = valor COM desconto (pago até dia 12)
-        // discount_amount = valor do desconto por parcela (perdido após dia 12)
-        const now = new Date();
-        const paymentsToInsert = [];
-        for (let i = 0; i < installments; i++) {
-          const dueDate = new Date(now.getFullYear(), now.getMonth() + i, 12);
-          paymentsToInsert.push({
-            enrollment_id:     newEnrollment[0].id,
-            student_id:        studentId,
-            amount:            discountedInstallment,
-            discount_amount:   discount,
-            due_date:          dueDate.toISOString().split('T')[0],
-            status:            'pending',
-            installment_number: i + 1,
-          });
-        }
-        if (paymentsToInsert.length) {
-          await db.from('payments').insert(paymentsToInsert);
-        }
-
-        AuditLog.log('enrollment_created', 'enrollment', newEnrollment[0].id, studentData.name,
-          `Matricula criada: ${studentData.name} em ${enrollmentData.piece_course || 'turma'} — ${installments}x de ${formatCurrency(discountedInstallment)}`);
-
-        // Nova matricula: recarrega lista e oferece download do contrato
-        await loadStudents();
-        let courseType = 'regular';
-        if (data.class_id) {
-          const { data: classInfo } = await db.from('classes')
-            .select('courses(type)').eq('id', data.class_id).single();
-          courseType = classInfo?.courses?.type || 'regular';
-        }
-        showContractPrompt(
-          { ...studentData, id: studentId },
-          { ...enrollmentData, id: newEnrollment[0].id },
-          courseType
-        );
-        return;
+      // Gerar parcelas com vencimento no dia 12
+      // amount = valor COM desconto (pago até dia 12)
+      // discount_amount = valor do desconto por parcela (perdido após dia 12)
+      const now = new Date();
+      const paymentsToInsert = [];
+      for (let i = 0; i < installments; i++) {
+        const dueDate = new Date(now.getFullYear(), now.getMonth() + i, 12);
+        paymentsToInsert.push({
+          enrollment_id:      newEnrollment[0].id,
+          student_id:         studentId,
+          amount:             discountedInstallment,
+          discount_amount:    discount,
+          due_date:           dueDate.toISOString().split('T')[0],
+          status:             'pending',
+          installment_number: i + 1,
+        });
+      }
+      if (paymentsToInsert.length) {
+        await db.from('payments').insert(paymentsToInsert);
       }
 
-      // Edicao: apenas salvar e fechar
-      toast('Aluno atualizado com sucesso.', 'success');
-      closeModal();
+      AuditLog.log('enrollment_created', 'enrollment', newEnrollment[0].id, studentData.name,
+        `Matricula criada: ${studentData.name} em ${enrollmentData.piece_course || 'turma'} — ${installments}x de ${formatCurrency(discountedInstallment)}`);
+
+      // Recarrega lista e oferece download do contrato
       await loadStudents();
+      let courseType = 'regular';
+      if (data.class_id) {
+        const { data: classInfo } = await db.from('classes')
+          .select('courses(type)').eq('id', data.class_id).single();
+        courseType = classInfo?.courses?.type || 'regular';
+      }
+      showContractPrompt(
+        { ...studentData, id: studentId },
+        { ...enrollmentData, id: newEnrollment[0].id },
+        courseType
+      );
     } catch (err) {
       console.error(err);
       toast('Erro ao salvar: ' + (err.message || 'Tente novamente.'), 'error');
@@ -833,6 +845,247 @@ const StudentsModule = (() => {
     closeModal();
   }
 
+  // ─── Nova matrícula para aluno existente ─────────────────
+  async function openEnrollmentForm(studentId) {
+    const student = allStudents.find(s => s.id === studentId);
+    if (!student) return;
+
+    const { data: classes } = await db.from('classes')
+      .select('id, day_of_week, schedule, courses(name, level, type), profiles(name)')
+      .eq('status', 'active');
+
+    const { data: teachers } = await db.from('profiles').select('id, name').eq('role', 'teacher');
+
+    const classOptions = (classes || []).map(c =>
+      `<option value="${c.id}">
+        ${escapeHtml(c.courses?.name || '—')} - ${escapeHtml(c.profiles?.name || '—')}
+        (${DAYS_PT[c.day_of_week] || c.day_of_week} ${c.schedule?.substring(0, 5)})
+      </option>`
+    ).join('');
+
+    const teacherOptions = (teachers || []).map(t =>
+      `<option value="${t.name}">${escapeHtml(t.name)}</option>`
+    ).join('');
+
+    const WORKLOAD_OPTIONS = ['6 meses', '12 meses', '14 meses', '15 meses', '18 meses', '2 anos'];
+    const workloadSelectOptions = [
+      '<option value="">— Selecione —</option>',
+      ...WORKLOAD_OPTIONS.map(o => `<option value="${o}">${o}</option>`),
+      '<option value="Personalizado">Personalizado</option>',
+    ].join('');
+
+    openModal(`Nova Matricula — ${escapeHtml(student.name)}`, `
+      <form id="enrollment-form" onsubmit="StudentsModule.saveEnrollment(event, '${studentId}')">
+        <div class="form-sections">
+          <div class="form-section">
+            <h3 class="form-section-title">Dados do Contrato e Pagamento</h3>
+            <div class="form-grid">
+              <div class="form-group span-2">
+                <label>Peca / Curso *</label>
+                <input type="text" name="piece_course" class="input" required
+                  placeholder="Nome do curso ou producao">
+              </div>
+              <div class="form-group">
+                <label>Turma</label>
+                <select name="class_id" class="input">
+                  <option value="">— Selecione —</option>
+                  ${classOptions}
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Inicio do Periodo</label>
+                <input type="month" name="period_start" class="input">
+              </div>
+              <div class="form-group">
+                <label>Fim do Periodo</label>
+                <input type="month" name="period_end" class="input">
+              </div>
+              <div class="form-group">
+                <label>Carga Horaria</label>
+                <select name="workload_select" class="input"
+                  onchange="StudentsModule.onWorkloadChange(this)">
+                  ${workloadSelectOptions}
+                </select>
+              </div>
+              <div class="form-group" id="workload-custom-group" style="display:none">
+                <label>Carga Horaria Personalizada</label>
+                <input type="text" name="workload_custom" class="input"
+                  placeholder="Ex: 20 meses, 3 anos...">
+              </div>
+              <div class="form-group">
+                <label>Professor Responsavel</label>
+                <select name="responsible_teacher" class="input">
+                  <option value="">— Selecione —</option>
+                  ${teacherOptions}
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Dia da Semana</label>
+                <select name="day_of_week" class="input">
+                  <option value="">—</option>
+                  ${Object.entries(DAYS_PT).map(([v, l]) =>
+                    `<option value="${v}">${l}</option>`
+                  ).join('')}
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Horario da Aula</label>
+                <input type="time" name="schedule" class="input">
+              </div>
+              <div class="form-group">
+                <label>Valor Total do Contrato (R$) *</label>
+                <input type="number" name="total_value" class="input" min="0" step="0.01" required
+                  oninput="StudentsModule.calcInstallment()">
+              </div>
+              <div class="form-group">
+                <label>Desconto por Parcela (R$) — valido ate dia 12</label>
+                <input type="number" name="discount" class="input" min="0" step="0.01" value="0"
+                  oninput="StudentsModule.calcInstallment()">
+              </div>
+              <div class="form-group">
+                <label>Num. de Parcelas *</label>
+                <input type="number" name="payment_installments" class="input" min="1" max="24"
+                  required value="1" oninput="StudentsModule.calcInstallment()">
+              </div>
+              <div class="form-group span-3" id="installment-preview" style="display:none">
+                <div class="installment-display">
+                  <span id="installment-num-text"></span>
+                  <span class="installment-words" id="installment-word-text"></span>
+                </div>
+              </div>
+              <div class="form-group span-3">
+                <label>Plano de Pagamento / Observacoes</label>
+                <textarea name="payment_plan" class="input textarea" rows="3"
+                  placeholder="Descreva o plano de pagamento acordado"></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Realizar Matricula</button>
+        </div>
+      </form>
+    `, true);
+  }
+
+  async function saveEnrollment(event, studentId) {
+    event.preventDefault();
+    const form = event.target;
+    const fd   = new FormData(form);
+    const data = Object.fromEntries(fd.entries());
+
+    const btn = form.querySelector('[type="submit"]');
+    btn.disabled    = true;
+    btn.textContent = 'Salvando...';
+
+    try {
+      const total        = parseFloat(data.total_value || 0);
+      const discount     = parseFloat(data.discount || 0);
+      const installments = parseInt(data.payment_installments || 1);
+      const fullInstallment       = total / installments;
+      const discountedInstallment = Math.max(0, fullInstallment - discount);
+
+      const workloadLabel = data.workload_select === 'Personalizado'
+        ? (data.workload_custom || null)
+        : (data.workload_select || null);
+
+      const enrollmentData = {
+        student_id:           studentId,
+        class_id:             data.class_id || null,
+        piece_course:         data.piece_course,
+        period_start:         data.period_start || null,
+        period_end:           data.period_end   || null,
+        workload_label:       workloadLabel,
+        total_value:          total,
+        discount:             discount,
+        responsible_teacher:  data.responsible_teacher || null,
+        payment_installments: installments,
+        payment_plan:         data.payment_plan || null,
+        status:               'active',
+      };
+
+      const { data: newEnrollment, error: eErr } = await db.from('enrollments')
+        .insert([enrollmentData]).select();
+      if (eErr) throw eErr;
+
+      const now = new Date();
+      const paymentsToInsert = [];
+      for (let i = 0; i < installments; i++) {
+        const dueDate = new Date(now.getFullYear(), now.getMonth() + i, 12);
+        paymentsToInsert.push({
+          enrollment_id:      newEnrollment[0].id,
+          student_id:         studentId,
+          amount:             discountedInstallment,
+          discount_amount:    discount,
+          due_date:           dueDate.toISOString().split('T')[0],
+          status:             'pending',
+          installment_number: i + 1,
+        });
+      }
+      if (paymentsToInsert.length) {
+        await db.from('payments').insert(paymentsToInsert);
+      }
+
+      const student = allStudents.find(s => s.id === studentId);
+      AuditLog.log('enrollment_created', 'enrollment', newEnrollment[0].id, student?.name,
+        `Matricula adicional: ${student?.name} em ${enrollmentData.piece_course || 'turma'} — ${installments}x de ${formatCurrency(discountedInstallment)}`);
+
+      await loadStudents();
+
+      let courseType = 'regular';
+      if (data.class_id) {
+        const { data: classInfo } = await db.from('classes')
+          .select('courses(type)').eq('id', data.class_id).single();
+        courseType = classInfo?.courses?.type || 'regular';
+      }
+
+      const updatedStudent = allStudents.find(s => s.id === studentId) || student;
+      showContractPrompt(
+        { ...updatedStudent, id: studentId },
+        { ...enrollmentData, id: newEnrollment[0].id },
+        courseType
+      );
+    } catch (err) {
+      console.error(err);
+      toast('Erro ao salvar: ' + (err.message || 'Tente novamente.'), 'error');
+      btn.disabled    = false;
+      btn.textContent = 'Realizar Matricula';
+    }
+  }
+
+  async function cancelEnrollment(enrollmentId, studentId) {
+    const confirmed = await confirmDialog(
+      'Cancelar esta matricula? Esta acao nao pode ser desfeita.'
+    );
+    if (!confirmed) return;
+
+    const { error } = await db.from('enrollments')
+      .update({ status: 'cancelled' }).eq('id', enrollmentId);
+    if (error) return toast('Erro ao cancelar matricula.', 'error');
+
+    AuditLog.log('enrollment_cancelled', 'enrollment', enrollmentId, null,
+      'Matricula cancelada manualmente');
+    toast('Matricula cancelada.', 'success');
+    await loadStudents();
+    openDetail(studentId);
+  }
+
+  async function exportEnrollmentContract(studentId, enrollmentId) {
+    try {
+      const { data: student } = await db.from('students').select('*').eq('id', studentId).single();
+      const { data: enrollment } = await db.from('enrollments')
+        .select('*, classes(courses(name, level, type), profiles(name))')
+        .eq('id', enrollmentId).single();
+      if (!student || !enrollment) return toast('Dados nao encontrados.', 'error');
+      const courseType = enrollment.classes?.courses?.type || 'regular';
+      const doc = PDFGen.contract(student, enrollment, courseType);
+      PDFGen.downloadPDF(doc, `contrato-${student.ra || studentId}-${enrollmentId.substring(0, 8)}.pdf`);
+    } catch (e) {
+      toast('Erro ao gerar contrato: ' + (e.message || 'Tente novamente.'), 'error');
+    }
+  }
+
   // ─── Gerar contrato a partir da ficha do aluno ────────────
   async function exportStudentContract(id) {
     const student = allStudents.find(s => s.id === id);
@@ -861,6 +1114,7 @@ const StudentsModule = (() => {
     exportStudentCard, exportStudentCert, exportStudentContract,
     openPaymentBookConfig, generatePaymentBook,
     updateAge, calcInstallment,
-    onWorkloadChange, downloadPendingContract
+    onWorkloadChange, downloadPendingContract,
+    openEnrollmentForm, saveEnrollment, cancelEnrollment, exportEnrollmentContract,
   };
 })();
