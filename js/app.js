@@ -17,9 +17,13 @@ const Router = (() => {
   function navigate(view) {
     if (!routes[view]) return;
 
-    // Restrições de acesso
-    if ((view === 'financial' || view === 'settings' || view === 'history') && !Auth.isAdmin()) return;
+    // Restrições de acesso por perfil
+    if ((view === 'settings' || view === 'history') && !Auth.isAdmin()) return;
+    if (view === 'financial' && !Auth.isAdminOrFinancial()) return;
     if (view === 'teachers' && !Auth.isAdmin()) return;
+
+    // Fecha sidebar mobile ao navegar
+    document.body.classList.remove('sidebar-open');
 
     currentView = view;
     document.querySelectorAll('.nav-item').forEach(el => {
@@ -77,24 +81,34 @@ function closeModal() {
   document.body.style.overflow = '';
 }
 
+// ─── Sidebar mobile ────────────────────────────────────────────
+function toggleSidebar() {
+  document.body.classList.toggle('sidebar-open');
+}
+
 // ─── Inicialização ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   const ok = await Auth.requireAuth();
   if (!ok) return;
 
-  const profile  = Auth.getProfile();
-  const isAdmin  = Auth.isAdmin();
+  const profile     = Auth.getProfile();
+  const isAdmin     = Auth.isAdmin();
+  const isFinancial = Auth.isFinancial();
 
   document.getElementById('user-name').textContent = profile?.name || 'Usuário';
-  document.getElementById('user-role').textContent = isAdmin ? 'Administrador' : 'Professor';
+  document.getElementById('user-role').textContent =
+    isAdmin ? 'Administrador' : isFinancial ? 'Financeiro' : 'Professor';
 
   // ─── Visibilidade do menu por perfil ──────────────────────
-  // Professores NÃO veem: Professores, Histórico, Financeiro, Configurações
-  const adminOnly = ['nav-teachers', 'nav-history', 'nav-financial', 'nav-settings'];
-  adminOnly.forEach(id => {
+  // Apenas admins veem: Professores, Histórico, Configurações
+  ['nav-teachers', 'nav-history', 'nav-settings'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isAdmin ? 'flex' : 'none';
   });
+
+  // Financeiro: visível para admin e role financial
+  const navFin = document.getElementById('nav-financial');
+  if (navFin) navFin.style.display = (isAdmin || isFinancial) ? 'flex' : 'none';
 
   // ─── Modal ────────────────────────────────────────────────
   document.getElementById('modal-overlay').addEventListener('click', e => {
@@ -110,7 +124,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ─── Notificações ─────────────────────────────────────────
   await NotificationsHelper.load();
-  // Atualiza a cada 60 segundos
   setInterval(() => NotificationsHelper.load(), 60000);
 
   Router.init();

@@ -1341,18 +1341,123 @@ textarea.input {
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
-/* ─── Responsive ──────────────────────────────────────────────── */
-@media (max-width: 900px) {
-  .detail-grid { grid-template-columns: 1fr; }
-  .form-grid { grid-template-columns: 1fr 1fr; }
-  .form-group.span-3 { grid-column: span 2; }
+/* ─── Hamburger / sidebar toggle ─────────────────────────────── */
+.sidebar-toggle {
+  display: none;
+  width: 36px; height: 36px;
+  border-radius: var(--radius);
+  align-items: center; justify-content: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: background var(--transition), color var(--transition);
+}
+.sidebar-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sidebar-toggle svg   { width: 20px; height: 20px; }
+
+/* ─── Overlay sidebar mobile ─────────────────────────────────── */
+#sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 199;
+  backdrop-filter: blur(2px);
 }
 
-@media (max-width: 640px) {
-  #sidebar { display: none; }
+/* ─── Responsive — tablet (≤ 960px) ─────────────────────────── */
+@media (max-width: 960px) {
+  .detail-grid  { grid-template-columns: 1fr; }
+  .form-grid    { grid-template-columns: 1fr 1fr; }
+  .form-group.span-3 { grid-column: span 2; }
+  .caruso-week  { grid-template-columns: repeat(7, minmax(110px, 1fr)); }
+}
+
+/* ─── Responsive — mobile (≤ 768px) ─────────────────────────── */
+@media (max-width: 768px) {
+  /* Sidebar: drawer lateral */
+  #sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(.4,0,.2,1);
+    z-index: 200;
+    display: flex !important;   /* anula display:none legado */
+    box-shadow: var(--shadow);
+  }
+  body.sidebar-open #sidebar        { transform: translateX(0); }
+  body.sidebar-open #sidebar-overlay { display: block; }
+
+  /* Main: ocupa toda largura */
   #main { margin-left: 0; }
-  .form-grid { grid-template-columns: 1fr; }
-  .form-group.span-2, .form-group.span-3 { grid-column: span 1; }
-  .cards-grid { grid-template-columns: 1fr 1fr; }
-  #view-content { padding: 16px; }
+
+  /* Topbar: mostra hamburger */
+  .sidebar-toggle { display: flex; }
+  #topbar { padding: 0 12px; gap: 8px; }
+
+  /* View */
+  #view-content { padding: 14px; }
+
+  /* View header empilha verticalmente */
+  .view-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .view-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .search-box, .search-box input { width: 100%; }
+
+  /* Tabelas: scroll horizontal */
+  .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .data-table    { min-width: 560px; }
+
+  /* Modal: tela cheia */
+  #modal-overlay { align-items: flex-end; }
+  .modal-box, .modal-wide {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
+    max-height: 92vh;
+    overflow-y: auto;
+  }
+
+  /* Formulários */
+  .form-grid { grid-template-columns: 1fr !important; }
+  .form-group.span-2,
+  .form-group.span-3 { grid-column: span 1 !important; }
+  .form-sections { gap: 1rem; }
+
+  /* Cards */
+  .cards-grid    { grid-template-columns: 1fr 1fr !important; }
+  .stat-cards    { grid-template-columns: 1fr 1fr !important; }
+
+  /* Calendário Marcos Caruso */
+  .caruso-week {
+    grid-template-columns: repeat(7, minmax(130px, 1fr));
+    overflow-x: auto;
+  }
+
+  /* Mapa de salas */
+  .room-map-grid { grid-template-columns: 1fr !important; }
+
+  /* Reuniões */
+  .meeting-card-header { flex-direction: column; gap: 0.5rem; }
+
+  /* Batch actions */
+  .batch-actions { flex-wrap: wrap; }
+
+  /* Ações em tabela: empilhar */
+  .actions-cell { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+
+  /* Detail grid */
+  .detail-grid { grid-template-columns: 1fr; }
+}
+
+/* ─── Responsive — mobile pequeno (≤ 420px) ─────────────────── */
+@media (max-width: 420px) {
+  .cards-grid { grid-template-columns: 1fr !important; }
+  .stat-cards { grid-template-columns: 1fr !important; }
+  html { font-size: 13px; }
 }

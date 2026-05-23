@@ -33,10 +33,12 @@ const Auth = (() => {
     return session;
   }
 
-  function getUser()    { return currentUser; }
-  function getProfile() { return currentProfile; }
-  function isAdmin()    { return currentProfile?.role === 'admin'; }
-  function isTeacher()  { return currentProfile?.role === 'teacher'; }
+  function getUser()            { return currentUser; }
+  function getProfile()         { return currentProfile; }
+  function isAdmin()            { return currentProfile?.role === 'admin'; }
+  function isTeacher()          { return currentProfile?.role === 'teacher'; }
+  function isFinancial()        { return currentProfile?.role === 'financial'; }
+  function isAdminOrFinancial() { return isAdmin() || isFinancial(); }
 
   async function requireAuth() {
     const session = await getSession();
@@ -44,5 +46,6 @@ const Auth = (() => {
     return true;
   }
 
-  return { login, logout, getSession, getUser, getProfile, isAdmin, isTeacher, requireAuth };
+  return { login, logout, getSession, getUser, getProfile,
+           isAdmin, isTeacher, isFinancial, isAdminOrFinancial, requireAuth };
 })();
