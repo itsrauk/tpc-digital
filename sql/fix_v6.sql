@@ -80,8 +80,8 @@ CREATE TABLE IF NOT EXISTS meeting_responses (
   alternative_date DATE,
   message          TEXT
 );
-ALTER TABLE meeting_responses
-  ADD CONSTRAINT IF NOT EXISTS meeting_resp_unique UNIQUE (proposal_id, user_id);
+ALTER TABLE meeting_responses DROP CONSTRAINT IF EXISTS meeting_resp_unique;
+ALTER TABLE meeting_responses ADD CONSTRAINT meeting_resp_unique UNIQUE (proposal_id, user_id);
 
 -- 7. Notificações in-app
 CREATE TABLE IF NOT EXISTS notifications (
