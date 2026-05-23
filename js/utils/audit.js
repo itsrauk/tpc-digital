@@ -26,6 +26,10 @@ const AuditLog = (() => {
     teacher_updated:      'Professor editado',
     // Frequência
     attendance_registered:'Frequencia registrada',
+    // Salas
+    room_booked:          'Sala reservada',
+    // Reuniões
+    meeting_proposed:     'Reuniao proposta',
   };
 
   async function log(actionType, entityType, entityId, entityName, description) {

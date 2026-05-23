@@ -5,6 +5,8 @@ const Router = (() => {
     students:  StudentsModule,
     courses:   CoursesModule,
     teachers:  TeachersModule,
+    rooms:     RoomsModule,
+    meetings:  MeetingsModule,
     history:   HistoryModule,
     financial: FinancialModule,
     settings:  SettingsModule,
@@ -14,7 +16,10 @@ const Router = (() => {
 
   function navigate(view) {
     if (!routes[view]) return;
+
+    // Restrições de acesso
     if ((view === 'financial' || view === 'settings' || view === 'history') && !Auth.isAdmin()) return;
+    if (view === 'teachers' && !Auth.isAdmin()) return;
 
     currentView = view;
     document.querySelectorAll('.nav-item').forEach(el => {
@@ -22,12 +27,21 @@ const Router = (() => {
     });
 
     const viewTitle = {
-      dashboard: 'Dashboard', students: 'Alunos', courses: 'Turmas',
-      teachers: 'Professores', history: 'Historico', financial: 'Financeiro', settings: 'Configuracoes'
+      dashboard: 'Dashboard',   students:  'Alunos',
+      courses:   'Turmas',      teachers:  'Professores',
+      rooms:     'Salas',       meetings:  'Reunioes',
+      history:   'Historico',   financial: 'Financeiro',
+      settings:  'Configuracoes',
     };
     document.getElementById('page-title').textContent = viewTitle[view] || '';
 
-    routes[view].render();
+    try {
+      routes[view].render();
+    } catch (err) {
+      console.error('[Router] erro ao renderizar', view, err);
+      document.getElementById('view-content').innerHTML =
+        `<div class="error-state">Erro ao carregar a pagina. Tente recarregar.</div>`;
+    }
   }
 
   function init() {
@@ -68,29 +82,36 @@ document.addEventListener('DOMContentLoaded', async () => {
   const ok = await Auth.requireAuth();
   if (!ok) return;
 
-  const profile = Auth.getProfile();
+  const profile  = Auth.getProfile();
+  const isAdmin  = Auth.isAdmin();
+
   document.getElementById('user-name').textContent = profile?.name || 'Usuário';
-  document.getElementById('user-role').textContent = profile?.role === 'admin' ? 'Administrador' : 'Professor';
+  document.getElementById('user-role').textContent = isAdmin ? 'Administrador' : 'Professor';
 
-  const historyNav  = document.getElementById('nav-history');
-  if (historyNav)  historyNav.style.display  = Auth.isAdmin() ? 'flex' : 'none';
+  // ─── Visibilidade do menu por perfil ──────────────────────
+  // Professores NÃO veem: Professores, Histórico, Financeiro, Configurações
+  const adminOnly = ['nav-teachers', 'nav-history', 'nav-financial', 'nav-settings'];
+  adminOnly.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isAdmin ? 'flex' : 'none';
+  });
 
-  const financialNav = document.getElementById('nav-financial');
-  if (financialNav) financialNav.style.display = Auth.isAdmin() ? 'flex' : 'none';
-
-  const settingsNav = document.getElementById('nav-settings');
-  if (settingsNav) settingsNav.style.display = Auth.isAdmin() ? 'flex' : 'none';
-
+  // ─── Modal ────────────────────────────────────────────────
   document.getElementById('modal-overlay').addEventListener('click', e => {
     if (e.target === document.getElementById('modal-overlay')) closeModal();
   });
+  document.getElementById('modal-close').addEventListener('click', closeModal);
 
+  // ─── Logout ───────────────────────────────────────────────
   document.getElementById('btn-logout').addEventListener('click', async () => {
     const ok = await confirmDialog('Deseja sair do sistema?');
     if (ok) Auth.logout();
   });
 
-  document.getElementById('modal-close').addEventListener('click', closeModal);
+  // ─── Notificações ─────────────────────────────────────────
+  await NotificationsHelper.load();
+  // Atualiza a cada 60 segundos
+  setInterval(() => NotificationsHelper.load(), 60000);
 
   Router.init();
 });

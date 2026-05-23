@@ -86,7 +86,7 @@ const HistoryModule = (() => {
         <div class="filter-tabs">
           ${types.map(t => `
             <button class="filter-tab ${activeType === t.key ? 'active' : ''}"
-              onclick="HistoryModule.filterType('${t.key}')">
+              onclick="HistoryModule.filterType('${t.key}', this)">
               ${t.label}
             </button>
           `).join('')}
@@ -173,10 +173,10 @@ const HistoryModule = (() => {
     `).join('');
   }
 
-  function filterType(type) {
+  function filterType(type, el) {
     activeType = type;
     document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
-    event.target.classList.add('active');
+    if (el) el.classList.add('active');
     renderList(document.getElementById('search-history')?.value || '');
   }
 

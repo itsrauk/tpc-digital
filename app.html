@@ -31,7 +31,7 @@
           Dashboard
         </div>
 
-        <div class="nav-item" data-view="students">
+        <div class="nav-item" data-view="students" id="nav-students">
           <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="8" cy="5" r="3"/>
             <path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/>
@@ -47,7 +47,7 @@
           Turmas
         </div>
 
-        <div class="nav-item" data-view="teachers">
+        <div class="nav-item" data-view="teachers" id="nav-teachers">
           <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
             <circle cx="6" cy="5" r="2.5"/>
             <path d="M1 14c0-2.8 2.2-5 5-5"/>
@@ -55,6 +55,25 @@
             <path d="M9.5 14c0-2.2 1.1-3.8 2.5-4.5"/>
           </svg>
           Professores
+        </div>
+
+        <div class="nav-item" data-view="rooms">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M2 14V6l6-4 6 4v8"/>
+            <rect x="6" y="9" width="4" height="5" rx="0.5"/>
+          </svg>
+          Salas
+        </div>
+
+        <div class="nav-item" data-view="meetings">
+          <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="1" y="3" width="14" height="11" rx="1"/>
+            <path d="M5 1v4M11 1v4M1 7h14"/>
+            <circle cx="5" cy="11" r="1" fill="currentColor"/>
+            <circle cx="8" cy="11" r="1" fill="currentColor"/>
+            <circle cx="11" cy="11" r="1" fill="currentColor"/>
+          </svg>
+          Reunioes
         </div>
 
         <div class="nav-item" data-view="history" id="nav-history">
@@ -98,6 +117,16 @@
     <main id="main">
       <header id="topbar">
         <span id="page-title">Dashboard</span>
+        <div class="topbar-right">
+          <button class="notif-btn" id="btn-notifications"
+            onclick="NotificationsHelper.openPanel()" title="Notificacoes">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M8 1a5 5 0 0 1 5 5v3l1.5 2.5H1.5L3 9V6a5 5 0 0 1 5-5z"/>
+              <path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/>
+            </svg>
+            <span id="notif-badge" class="notif-badge" style="display:none">0</span>
+          </button>
+        </div>
       </header>
 
       <div id="view-content">
@@ -126,11 +155,14 @@
   <script src="js/utils/helpers.js"></script>
   <script src="js/utils/pdf.js"></script>
   <script src="js/utils/audit.js"></script>
+  <script src="js/utils/notifications.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/modules/dashboard.js"></script>
   <script src="js/modules/students.js"></script>
   <script src="js/modules/courses.js"></script>
   <script src="js/modules/teachers.js"></script>
+  <script src="js/modules/rooms.js"></script>
+  <script src="js/modules/meetings.js"></script>
   <script src="js/modules/financial.js"></script>
   <script src="js/modules/history.js"></script>
   <script src="js/modules/settings.js"></script>
