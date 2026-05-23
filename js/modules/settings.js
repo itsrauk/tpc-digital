@@ -139,6 +139,76 @@ const SettingsModule = (() => {
           <strong style="color:var(--text-primary)">3.</strong> A chave <code>anon</code> no codigo e publica por design do Supabase — as politicas RLS garantem que so usuarios autenticados acessam os dados.
         </p>
       </div>
+
+      <!-- ── Sandbox ─────────────────────────────────────────── -->
+      <div class="sandbox-panel">
+        <div class="sandbox-panel-header">
+          <div>
+            <h3 class="form-section-title" style="margin:0;">Sandbox de Testes</h3>
+            <p style="color:var(--text-secondary);font-size:0.85rem;margin-top:4px;">
+              Cria dados ficticios marcados com <strong>[TESTE]</strong> para treinar a equipe.
+              Nao afeta alunos, turmas ou pagamentos reais.
+            </p>
+          </div>
+          <span class="badge badge-warning">Admin</span>
+        </div>
+
+        <div class="sandbox-steps">
+          <div class="sandbox-step">
+            <div class="sandbox-step-num">1</div>
+            <div>
+              <strong>Execute fix_v8.sql</strong> no Supabase SQL Editor.<br>
+              <span style="color:var(--text-muted);font-size:0.8rem;">
+                Cria a tabela de frequencia e as funcoes seed/reset.
+              </span>
+            </div>
+          </div>
+          <div class="sandbox-step">
+            <div class="sandbox-step-num">2</div>
+            <div>
+              <strong>Crie contas de professor para teste</strong> no Supabase:<br>
+              <span style="color:var(--text-muted);font-size:0.8rem;">
+                Authentication &rarr; Users &rarr; Add user<br>
+                Sugestao: <code>prof1@tpc-teste.com</code> e <code>prof2@tpc-teste.com</code><br>
+                Depois, no TPC Digital &rarr; Professores, defina o role como "Professor".
+              </span>
+            </div>
+          </div>
+          <div class="sandbox-step">
+            <div class="sandbox-step-num">3</div>
+            <div>
+              <strong>Semeie os dados de teste</strong> com o botao abaixo.<br>
+              <span style="color:var(--text-muted);font-size:0.8rem;">
+                Cria 2 turmas, 6 alunos e atribui salas (Martins Pena + Stanislavski).
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sandbox-actions">
+          <div class="sandbox-action-card">
+            <div class="sandbox-action-title">Semear Dados de Teste</div>
+            <div class="sandbox-action-desc">
+              Cria 2 turmas + 6 alunos ficticios atribuidos aos professores existentes.
+            </div>
+            <button class="btn btn-secondary" onclick="SettingsModule.seedSandbox(this)">
+              Semear Sandbox
+            </button>
+          </div>
+          <div class="sandbox-action-card danger">
+            <div class="sandbox-action-title">Resetar Sandbox</div>
+            <div class="sandbox-action-desc">
+              Apaga TODOS os dados [TESTE] (chamadas, reservas, matriculas, alunos, turmas)
+              e recria do zero.
+            </div>
+            <button class="btn btn-danger" onclick="SettingsModule.resetSandbox(this)">
+              Resetar Sandbox
+            </button>
+          </div>
+        </div>
+
+        <div id="sandbox-status" style="display:none" class="sandbox-info-box"></div>
+      </div>
     `;
   }
 
@@ -150,5 +220,49 @@ const SettingsModule = (() => {
     toast('Configuracoes salvas com sucesso.', 'success');
   }
 
-  return { render, getSettings, save };
+  async function seedSandbox(btn) {
+    btn.disabled    = true;
+    btn.textContent = 'Semeando...';
+    const statusEl  = document.getElementById('sandbox-status');
+    try {
+      const { data, error } = await db.rpc('seed_sandbox');
+      if (error) throw error;
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.textContent   = data || 'Sandbox criado com sucesso.';
+      }
+      toast('Sandbox criado com sucesso.', 'success');
+    } catch (e) {
+      toast('Erro ao semear sandbox: ' + (e.message || 'Tente novamente.'), 'error');
+    } finally {
+      btn.disabled    = false;
+      btn.textContent = 'Semear Sandbox';
+    }
+  }
+
+  async function resetSandbox(btn) {
+    const ok = await confirmDialog(
+      'Resetar o sandbox apagara TODOS os dados [TESTE] e recriara do zero. Confirmar?'
+    );
+    if (!ok) return;
+    btn.disabled    = true;
+    btn.textContent = 'Resetando...';
+    const statusEl  = document.getElementById('sandbox-status');
+    try {
+      const { data, error } = await db.rpc('reset_sandbox');
+      if (error) throw error;
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.textContent   = data || 'Sandbox resetado com sucesso.';
+      }
+      toast('Sandbox resetado com sucesso.', 'success');
+    } catch (e) {
+      toast('Erro ao resetar sandbox: ' + (e.message || 'Tente novamente.'), 'error');
+    } finally {
+      btn.disabled    = false;
+      btn.textContent = 'Resetar Sandbox';
+    }
+  }
+
+  return { render, getSettings, save, seedSandbox, resetSandbox };
 })();

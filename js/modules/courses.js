@@ -92,11 +92,16 @@ const CoursesModule = (() => {
     const activeStudents = (c.enrollments || []).filter(e => e.status === 'active');
     const badge = courseTypeBadge(c.courses?.type);
     const endPreview = c.end_date ? fmtMonthLocal(c.end_date) : 'Em andamento';
+    const isSandbox  = c.is_sandbox;
 
     return `
-      <div class="class-card" onclick="CoursesModule.openClassDetail('${c.id}')">
+      <div class="class-card ${isSandbox ? 'class-card-sandbox' : ''}"
+        onclick="CoursesModule.openClassDetail('${c.id}')">
         <div class="class-card-header">
-          <div class="class-type-badge ${badge.css}">${badge.label}</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div class="class-type-badge ${badge.css}">${badge.label}</div>
+            ${isSandbox ? '<span class="badge badge-warning" style="font-size:9px;padding:1px 5px;">TESTE</span>' : ''}
+          </div>
           ${isAdmin ? `<button class="btn-icon-sm" onclick="event.stopPropagation(); CoursesModule.openClassForm('${c.id}')">
             Editar
           </button>` : ''}
@@ -109,7 +114,11 @@ const CoursesModule = (() => {
         </div>
         <div class="class-card-footer">
           <span class="student-count">${activeStudents.length} alunos</span>
-          <span class="end-date">Previsao: ${endPreview}</span>
+          ${activeStudents.length > 0 ? `
+          <button class="btn btn-secondary btn-sm"
+            onclick="event.stopPropagation(); CoursesModule.openChamada('${c.id}')">
+            Chamada
+          </button>` : ''}
         </div>
       </div>`;
   }
@@ -164,25 +173,32 @@ const CoursesModule = (() => {
           </div>
         </div>
         <div class="detail-section">
-          <h3 class="detail-section-title">Alunos Matriculados (${activeEnrollments.length})</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+            <h3 class="detail-section-title" style="margin:0;">
+              Alunos Matriculados (${activeEnrollments.length})
+            </h3>
+            ${activeEnrollments.length ? `
+            <button class="btn btn-primary btn-sm"
+              onclick="CoursesModule.openChamada('${id}')">
+              Fazer Chamada
+            </button>` : ''}
+          </div>
           ${activeEnrollments.length ? `
           <div class="table-wrapper mini">
             <table class="data-table">
-              <thead><tr><th>Nome</th><th>RA</th><th>Telefone</th>${Auth.isAdmin() ? '<th>Frequencia</th>' : ''}</tr></thead>
+              <thead><tr>
+                <th>Nome</th><th>RA</th><th>Telefone</th><th>Historico</th>
+              </tr></thead>
               <tbody>
                 ${activeEnrollments.map(e => `<tr>
                   <td>${escapeHtml(e.students?.name || '—')}</td>
                   <td class="text-accent">${escapeHtml(e.students?.ra || '—')}</td>
                   <td>${escapeHtml(e.students?.student_phone || '—')}</td>
-                  ${Auth.isAdmin() ? `<td>
+                  <td>
                     <button class="btn-icon" onclick="CoursesModule.openAttendance('${e.id}', '${id}')">
-                      Frequencia
+                      Ver faltas
                     </button>
-                  </td>` : `<td>
-                    <button class="btn-icon" onclick="CoursesModule.openAttendance('${e.id}', '${id}')">
-                      Frequencia
-                    </button>
-                  </td>`}
+                  </td>
                 </tr>`).join('')}
               </tbody>
             </table>
@@ -192,7 +208,154 @@ const CoursesModule = (() => {
     `, true);
   }
 
-  // ─── Frequência ───────────────────────────────────────────
+  // ─── Chamada em massa ────────────────────────────────────
+  async function openChamada(classId) {
+    const today = new Date().toISOString().split('T')[0];
+
+    const { data: cls } = await db.from('classes')
+      .select(`*, courses(name), profiles(name),
+        enrollments(id, student_id, status, students(id, name, ra))`)
+      .eq('id', classId).single();
+
+    if (!cls) return toast('Turma nao encontrada.', 'error');
+
+    const actives = (cls.enrollments || []).filter(e => e.status === 'active');
+    if (!actives.length) return toast('Nenhum aluno matriculado nesta turma.', 'warning');
+
+    // Busca chamada já registrada para hoje
+    const { data: existingAtt } = await db.from('attendance')
+      .select('enrollment_id, status')
+      .eq('class_id', classId)
+      .eq('date', today);
+
+    const attMap = {};
+    (existingAtt || []).forEach(a => { attMap[a.enrollment_id] = a.status; });
+
+    const alreadySaved = existingAtt?.length > 0;
+
+    openModal(`Chamada — ${escapeHtml(cls.courses?.name || '—')}`, `
+      <div class="chamada-header">
+        <div class="form-group" style="margin:0;flex:1;">
+          <label>Data da Aula</label>
+          <input type="date" id="chamada-date" class="input" value="${today}">
+        </div>
+        <div class="chamada-legend">
+          <span class="chamada-dot present">P</span> Presente &nbsp;
+          <span class="chamada-dot absent">F</span> Falta &nbsp;
+          <span class="chamada-dot justified">J</span> Justificada
+        </div>
+      </div>
+
+      ${alreadySaved ? `
+      <div class="sandbox-info-box" style="margin-bottom:1rem;">
+        Chamada ja registrada para hoje. Salvar novamente ira sobrescrever.
+      </div>` : ''}
+
+      <div class="chamada-list">
+        ${actives.map((e, i) => {
+          const st = attMap[e.id] || 'present';
+          return `<div class="chamada-row" data-enrollment="${e.id}" data-student="${e.students?.id || ''}">
+            <div class="chamada-num">${i + 1}</div>
+            <div class="chamada-student">
+              <div class="chamada-student-name">${escapeHtml(e.students?.name || '—')}</div>
+              <div class="chamada-student-ra">${escapeHtml(e.students?.ra || '—')}</div>
+            </div>
+            <div class="chamada-btns">
+              <button class="chamada-btn present ${st === 'present'   ? 'active' : ''}"
+                data-status="present"
+                onclick="CoursesModule.setChamadaStatus(this)">P</button>
+              <button class="chamada-btn absent ${st === 'absent'    ? 'active' : ''}"
+                data-status="absent"
+                onclick="CoursesModule.setChamadaStatus(this)">F</button>
+              <button class="chamada-btn justified ${st === 'justified' ? 'active' : ''}"
+                data-status="justified"
+                onclick="CoursesModule.setChamadaStatus(this)">J</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <div class="chamada-summary" id="chamada-summary">
+        ${buildChamadaSummary(actives.length, attMap)}
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="CoursesModule.saveChamada('${classId}')">
+          Salvar Chamada
+        </button>
+      </div>
+    `, true);
+  }
+
+  function buildChamadaSummary(total, attMap) {
+    const counts = { present: 0, absent: 0, justified: 0 };
+    Object.values(attMap).forEach(s => { if (counts[s] !== undefined) counts[s]++; });
+    // conta os que ainda estão como default (present) se não estiverem no mapa
+    const mapped = Object.keys(attMap).length;
+    counts.present += (total - mapped);
+    return `<span class="chamada-count present">${counts.present} presentes</span>
+            <span class="chamada-count absent">${counts.absent} faltas</span>
+            <span class="chamada-count justified">${counts.justified} justificadas</span>`;
+  }
+
+  function setChamadaStatus(btn) {
+    const row = btn.closest('.chamada-row');
+    row.querySelectorAll('.chamada-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    // Recalcula resumo ao vivo
+    const allRows = document.querySelectorAll('.chamada-row');
+    const counts  = { present: 0, absent: 0, justified: 0 };
+    allRows.forEach(r => {
+      const active = r.querySelector('.chamada-btn.active');
+      const s = active?.dataset.status || 'present';
+      if (counts[s] !== undefined) counts[s]++;
+    });
+    const sumEl = document.getElementById('chamada-summary');
+    if (sumEl) sumEl.innerHTML =
+      `<span class="chamada-count present">${counts.present} presentes</span>
+       <span class="chamada-count absent">${counts.absent} faltas</span>
+       <span class="chamada-count justified">${counts.justified} justificadas</span>`;
+  }
+
+  async function saveChamada(classId) {
+    const date = document.getElementById('chamada-date')?.value;
+    if (!date) return toast('Selecione a data.', 'warning');
+
+    const rows    = document.querySelectorAll('.chamada-row');
+    if (!rows.length) return;
+
+    const records = [];
+    rows.forEach(row => {
+      const enrollmentId = row.dataset.enrollment;
+      const studentId    = row.dataset.student;
+      const activeBtn    = row.querySelector('.chamada-btn.active');
+      const status       = activeBtn?.dataset.status || 'present';
+      if (enrollmentId) records.push({
+        enrollment_id: enrollmentId,
+        student_id:    studentId || null,
+        class_id:      classId,
+        date, status,
+      });
+    });
+
+    const { error } = await db.from('attendance')
+      .upsert(records, { onConflict: 'enrollment_id,date' });
+
+    if (error) return toast('Erro ao salvar chamada: ' + error.message, 'error');
+
+    const presentes = records.filter(r => r.status === 'present').length;
+    const faltas    = records.filter(r => r.status !== 'present').length;
+
+    AuditLog.log('attendance_registered', 'class', classId, null,
+      `Chamada — ${date}: ${presentes} presentes, ${faltas} faltas`);
+
+    toast(`Chamada salva: ${presentes} presentes · ${faltas} faltas.`, 'success');
+    closeModal();
+  }
+
+  // ─── Frequência individual ────────────────────────────────
   async function openAttendance(enrollmentId, classId) {
     const today = new Date().toISOString().split('T')[0];
 
@@ -426,5 +589,9 @@ const CoursesModule = (() => {
     }
   }
 
-  return { render, openClassDetail, openClassForm, saveClass, onCourseChange, openAttendance, saveAttendance };
+  return {
+    render, openClassDetail, openClassForm, saveClass, onCourseChange,
+    openChamada, setChamadaStatus, saveChamada,
+    openAttendance, saveAttendance,
+  };
 })();
