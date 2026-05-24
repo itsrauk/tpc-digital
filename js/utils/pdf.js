@@ -131,99 +131,120 @@ const PDFGen = (() => {
   }
 
   // ─── Carnê de Pagamento ───────────────────────────────────
+  // Cada canhoto ocupa 1/4 da página A4 sem margens (sem pontas brancas).
+  // O valor exibido é sempre R$ 250,00 conforme padrão TPC.
   function paymentBook(student, payments, fields = null) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-    const defaultFields = { name: true, ra: true, amount: true, dueDate: true, installment: true, observations: true };
+    const defaultFields = { name: true, ra: true, amount: true, dueDate: true, installment: true, observations: false };
     const slipFields = fields || defaultFields;
 
-    const slipW = 180, slipH = 58;
-    const marginLeft = 15;
+    const PAGE_W         = 210;           // A4 largura
+    const PAGE_H         = 297;           // A4 altura
+    const SLIPS_PER_PAGE = 4;
+    const SLIP_H         = PAGE_H / SLIPS_PER_PAGE; // 74.25 mm — cobre toda a página
+    const FIXED_AMOUNT   = 250;           // Valor padrão TPC
+
+    const COL1 = 10;                      // Coluna esquerda
+    const COL2 = PAGE_W / 2 + 8;         // Coluna direita
+    const HDR_H = 15;                     // Altura da barra de cabeçalho
 
     payments.forEach((payment, i) => {
-      const y = 15 + i * (slipH + 8);
+      if (i > 0 && i % SLIPS_PER_PAGE === 0) doc.addPage();
 
-      if (i > 0 && i % 4 === 0) {
-        doc.addPage();
-      }
+      const slot  = i % SLIPS_PER_PAGE;
+      const slipY = slot * SLIP_H;        // começa exatamente em 0, 74.25, 148.5, 222.75
 
-      const slipY = 15 + (i % 4) * (slipH + 8);
-
+      // ── Fundo escuro (cobre fatia inteira) ──────────────────
       doc.setFillColor(22, 22, 22);
-      doc.roundedRect(marginLeft, slipY, slipW, slipH, 3, 3, 'F');
+      doc.rect(0, slipY, PAGE_W, SLIP_H, 'F');
 
+      // ── Barra dourada de cabeçalho ───────────────────────────
       doc.setFillColor(200, 169, 95);
-      doc.roundedRect(marginLeft, slipY, slipW, 10, 3, 3, 'F');
-      doc.rect(marginLeft, slipY + 7, slipW, 3, 'F');
+      doc.rect(0, slipY, PAGE_W, HDR_H, 'F');
 
       doc.setTextColor(15, 15, 15);
-      doc.setFontSize(7);
+      doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
-      doc.text((cfg().school_name || 'TPC - Teatro Popular de Comedia').toUpperCase(), marginLeft + slipW / 2, slipY + 6.5, { align: 'center' });
+      doc.text(
+        (cfg().school_name || 'TPC - Teatro Popular de Comedia').toUpperCase(),
+        PAGE_W / 2, slipY + 10,
+        { align: 'center' }
+      );
 
-      let col1X = marginLeft + 5, col2X = marginLeft + 95, lineY = slipY + 18;
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
+      // ── Linha 1: Aluno / RA ──────────────────────────────────
+      let ly = slipY + HDR_H + 11;
 
       if (slipFields.name) {
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal');
         doc.setTextColor(154, 154, 154);
-        doc.text('Aluno:', col1X, lineY);
+        doc.text('Aluno:', COL1, ly);
+        doc.setFontSize(9); doc.setFont('helvetica', 'bold');
         doc.setTextColor(232, 232, 232);
-        doc.text(student.name || '—', col1X, lineY + 5);
+        doc.text(student.name || '—', COL1, ly + 6, { maxWidth: 90 });
       }
 
       if (slipFields.ra) {
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal');
         doc.setTextColor(154, 154, 154);
-        doc.text('RA:', col2X, lineY);
+        doc.text('RA:', COL2, ly);
+        doc.setFontSize(9); doc.setFont('helvetica', 'bold');
         doc.setTextColor(200, 169, 95);
-        doc.text(student.ra || '—', col2X, lineY + 5);
+        doc.text(student.ra || '—', COL2, ly + 6);
       }
 
-      lineY += 13;
+      // ── Linha 2: Parcela / Vencimento ────────────────────────
+      ly += 17;
 
       if (slipFields.installment) {
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal');
         doc.setTextColor(154, 154, 154);
-        doc.text('Parcela:', col1X, lineY);
+        doc.text('Parcela:', COL1, ly);
+        doc.setFontSize(9); doc.setFont('helvetica', 'bold');
         doc.setTextColor(232, 232, 232);
-        doc.text(`${payment.installment_number || i + 1}`, col1X, lineY + 5);
+        doc.text(`${payment.installment_number || i + 1} / ${payments.length}`, COL1, ly + 6);
       }
 
       if (slipFields.dueDate) {
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal');
         doc.setTextColor(154, 154, 154);
-        doc.text('Vencimento:', col2X, lineY);
+        doc.text('Vencimento:', COL2, ly);
+        doc.setFontSize(9); doc.setFont('helvetica', 'bold');
         doc.setTextColor(232, 232, 232);
-        doc.text(formatDate(payment.due_date), col2X, lineY + 5);
+        doc.text(formatDate(payment.due_date), COL2, ly + 6);
       }
 
-      lineY += 13;
+      // ── Linha 3: Valor fixo / Obs ────────────────────────────
+      ly += 17;
 
       if (slipFields.amount) {
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal');
         doc.setTextColor(154, 154, 154);
-        doc.text('Valor:', col1X, lineY);
+        doc.text('Valor:', COL1, ly);
+        doc.setFontSize(18); doc.setFont('helvetica', 'bold');
         doc.setTextColor(200, 169, 95);
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.text(formatCurrency(payment.amount), col1X, lineY + 5);
+        doc.text(formatCurrency(FIXED_AMOUNT), COL1, ly + 10);
       }
 
       if (slipFields.observations && payment.observations) {
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal');
         doc.setTextColor(154, 154, 154);
-        doc.setFontSize(7);
-        doc.setFont('helvetica', 'normal');
-        doc.text('Obs:', col2X, lineY);
+        doc.text('Obs:', COL2, ly);
         doc.setTextColor(232, 232, 232);
-        doc.text(payment.observations, col2X, lineY + 5, { maxWidth: 80 });
+        doc.text(payment.observations || '', COL2, ly + 6, { maxWidth: 95 });
       }
 
-      doc.setDrawColor(44, 44, 44);
-      doc.setLineWidth(0.3);
-      doc.setLineDashPattern([2, 2], 0);
-      if ((i % 4) < 3 && i < payments.length - 1) {
-        doc.line(marginLeft, slipY + slipH + 4, marginLeft + slipW, slipY + slipH + 4);
+      // ── Linha tracejada de corte entre canhoto e próximo ─────
+      const isLastSlot    = slot === SLIPS_PER_PAGE - 1;
+      const isLastPayment = i === payments.length - 1;
+      if (!isLastSlot && !isLastPayment) {
+        doc.setDrawColor(70, 70, 70);
+        doc.setLineWidth(0.3);
+        doc.setLineDashPattern([3, 3], 0);
+        doc.line(0, slipY + SLIP_H, PAGE_W, slipY + SLIP_H);
+        doc.setLineDashPattern([], 0);
       }
-      doc.setLineDashPattern([], 0);
     });
 
     return doc;

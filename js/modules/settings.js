@@ -140,6 +140,63 @@ const SettingsModule = (() => {
         </p>
       </div>
 
+      <!-- ── Usuário Financeiro ──────────────────────────────── -->
+      <div class="form-section" id="financial-user-section">
+        <h3 class="form-section-title">Adicionar Usuario com Acesso Financeiro</h3>
+        <p style="color:var(--text-secondary);font-size:0.9rem;line-height:1.7;margin-bottom:1.25rem;">
+          Usuarios financeiros podem acessar o modulo <strong>Financeiro</strong> (lancamentos,
+          baixa de pagamentos, exportacao de relatorios) mas nao veem alunos, turmas ou salas.
+          O processo e o mesmo que para professores.
+        </p>
+
+        <div class="detail-section" style="margin-bottom:1.2rem;">
+          <h3 class="detail-section-title">Passo 1 — Criar conta no Supabase</h3>
+          <ol style="padding-left:1.2rem;color:var(--text-secondary);font-size:0.88rem;line-height:1.9;">
+            <li>Acesse <strong style="color:var(--text-primary)">app.supabase.com</strong> → seu projeto</li>
+            <li>Va em <strong style="color:var(--text-primary)">Authentication → Users → Add user → Create new user</strong></li>
+            <li>Informe o e-mail e uma senha para o usuario</li>
+            <li>Copie o <strong style="color:var(--accent)">User UID</strong> gerado (coluna ID)</li>
+          </ol>
+        </div>
+
+        <div class="detail-section" style="margin-bottom:1.2rem;">
+          <h3 class="detail-section-title">Passo 2 — Preencha os dados</h3>
+          <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+            <div class="form-group">
+              <label>Nome do Usuario *</label>
+              <input type="text" id="fin-user-name" class="input"
+                placeholder="Ex: Lucia Financeiro" oninput="SettingsModule.updateFinSQL()">
+            </div>
+            <div class="form-group">
+              <label>User UID (copiado do Supabase) *</label>
+              <input type="text" id="fin-user-uuid" class="input"
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                oninput="SettingsModule.updateFinSQL()">
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <h3 class="detail-section-title">Passo 3 — Execute no SQL Editor do Supabase</h3>
+          <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;">
+            Supabase → SQL Editor → "New query" → cole o SQL abaixo → Run
+          </p>
+          <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;
+                      padding:0.85rem;font-family:monospace;font-size:0.82rem;
+                      color:var(--text-primary);white-space:pre-wrap;word-break:break-all;"
+               id="fin-sql-preview">INSERT INTO profiles (id, name, role)
+VALUES (
+  '— preencha o UID acima —',
+  '— preencha o nome acima —',
+  'financial'
+);</div>
+          <button class="btn btn-secondary" style="margin-top:0.5rem;font-size:0.85rem;"
+            onclick="SettingsModule.copyFinSQL()">
+            Copiar SQL
+          </button>
+        </div>
+      </div>
+
       <!-- ── Sandbox ─────────────────────────────────────────── -->
       <div class="sandbox-panel">
         <div class="sandbox-panel-header">
@@ -264,5 +321,23 @@ const SettingsModule = (() => {
     }
   }
 
-  return { render, getSettings, save, seedSandbox, resetSandbox };
+  function updateFinSQL() {
+    const name    = document.getElementById('fin-user-name')?.value?.trim()  || '— preencha o nome acima —';
+    const uuid    = document.getElementById('fin-user-uuid')?.value?.trim()  || '— preencha o UID acima —';
+    const preview = document.getElementById('fin-sql-preview');
+    if (preview) {
+      preview.textContent =
+        `INSERT INTO profiles (id, name, role)\nVALUES (\n  '${uuid}',\n  '${name}',\n  'financial'\n);`;
+    }
+  }
+
+  function copyFinSQL() {
+    const preview = document.getElementById('fin-sql-preview');
+    if (!preview) return;
+    navigator.clipboard.writeText(preview.textContent)
+      .then(()  => toast('SQL copiado.', 'success'))
+      .catch(()  => toast('Nao foi possivel copiar. Selecione manualmente.', 'warning'));
+  }
+
+  return { render, getSettings, save, seedSandbox, resetSandbox, updateFinSQL, copyFinSQL };
 })();
