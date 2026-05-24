@@ -789,7 +789,7 @@ body { font-family: Arial, Helvetica, sans-serif; color: #111; padding: 28px 36p
   <div class="updated-label">Atualizado em ${updatedDate}</div>
 </div>
 ${sectionsHtml}
-<div class="pdf-footer">Falar com a recepção para reservas na Sala Marcos Caruso</div>
+<div class="pdf-footer">Falar com o Raul para reservas na Sala Marcos Caruso</div>
 </body>
 </html>`;
 
