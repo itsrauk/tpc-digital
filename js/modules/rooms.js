@@ -138,6 +138,8 @@ const RoomsModule = (() => {
         <button class="btn btn-secondary" onclick="RoomsModule.nextMapWeek()">&#8250;</button>
         ${mapWeekOffset !== 0 ? `<button class="btn btn-secondary" style="margin-left:8px;font-size:11px"
           onclick="RoomsModule.resetMapWeek()">Semana atual</button>` : ''}
+        <button class="btn btn-secondary" style="margin-left:auto;font-size:12px"
+          onclick="RoomsModule.exportMapPDF()">&#8595; Exportar Mapa</button>
       </div>
 
       <div class="room-map-grid">
@@ -236,7 +238,9 @@ const RoomsModule = (() => {
         <button class="btn btn-secondary" onclick="RoomsModule.prevWeek()">&#8249;</button>
         <span style="font-weight:600">${weekStr}</span>
         <button class="btn btn-secondary" onclick="RoomsModule.nextWeek()">&#8250;</button>
-        <button class="btn btn-primary" style="margin-left:auto" onclick="RoomsModule.openBookingForm()">
+        <button class="btn btn-secondary" style="margin-left:auto;font-size:12px"
+          onclick="RoomsModule.exportCarusoPDF()">&#8595; PDF</button>
+        <button class="btn btn-primary" style="margin-left:8px" onclick="RoomsModule.openBookingForm()">
           + Reservar
         </button>
       </div>
@@ -359,9 +363,15 @@ const RoomsModule = (() => {
               placeholder="Nome da peca (se aplicavel)">
           </div>
           <div class="form-group span-2">
-            <label>Motivo *</label>
-            <input type="text" name="reason" class="input" required
-              placeholder="Ex: Ensaio geral, Apresentacao, Aula especial">
+            <label>Tipo de Reserva *</label>
+            <select name="reason" class="input" required>
+              <option value="">— Selecione —</option>
+              <option value="Ensaio">Ensaio</option>
+              <option value="Reposição de Aulas">Reposição de Aulas</option>
+              <option value="Reapresentação">Reapresentação</option>
+              <option value="Evento">Evento</option>
+              <option value="Outro">Outro</option>
+            </select>
           </div>
           <div class="form-group">
             <label>Data *</label>
@@ -681,6 +691,231 @@ const RoomsModule = (() => {
     renderView();
   }
 
+  // ─── Export: Cronograma Marcos Caruso (PDF) ───────────────────────
+  function exportCarusoPDF() {
+    const carusoRoom = allRooms.find(r => r.name === 'Marcos Caruso');
+    const todayStr   = new Date().toISOString().split('T')[0];
+
+    // Reservas futuras (ou de hoje) da Caruso, não canceladas
+    const upcoming = bookings
+      .filter(b => {
+        if (carusoRoom && b.room_id !== carusoRoom.id) return false;
+        if (b.status === 'cancelled') return false;
+        return b.booking_date >= todayStr;
+      })
+      .sort((a, b) => a.booking_date.localeCompare(b.booking_date) || a.start_time.localeCompare(b.start_time));
+
+    const TYPE_ORDER  = ['Ensaio','Reposição de Aulas','Reapresentação','Evento','Outro'];
+    const TYPE_LABELS = {
+      'Ensaio':             'ENSAIOS',
+      'Reposição de Aulas': 'REPOSIÇÃO DE AULAS',
+      'Reapresentação':     'REAPRESENTAÇÕES',
+      'Evento':             'EVENTOS',
+      'Outro':              'OUTROS',
+    };
+    const DIAS_SEMANA = ['DOMINGO','SEGUNDA-FEIRA','TERÇA-FEIRA','QUARTA-FEIRA','QUINTA-FEIRA','SEXTA-FEIRA','SÁBADO'];
+
+    // Agrupar por tipo
+    const groups = {};
+    for (const b of upcoming) {
+      const key = TYPE_ORDER.includes(b.reason) ? b.reason : 'Outro';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(b);
+    }
+
+    let sectionsHtml = '';
+    for (const type of TYPE_ORDER) {
+      if (!groups[type]?.length) continue;
+
+      // Sub-agrupamento por data
+      const byDate = {};
+      for (const b of groups[type]) {
+        if (!byDate[b.booking_date]) byDate[b.booking_date] = [];
+        byDate[b.booking_date].push(b);
+      }
+
+      let datesHtml = '';
+      for (const [date, items] of Object.entries(byDate)) {
+        const d      = new Date(date + 'T12:00:00');
+        const dd     = String(d.getDate()).padStart(2, '0');
+        const mm     = String(d.getMonth() + 1).padStart(2, '0');
+        const diaNm  = DIAS_SEMANA[d.getDay()];
+        datesHtml += `<div class="date-bar">${dd}/${mm} — ${diaNm}</div>`;
+        for (const b of items) {
+          const sh    = b.start_time.slice(0, 5).replace(':', 'h');
+          const eh    = b.end_time.slice(0, 5).replace(':', 'h');
+          const piece = b.piece ? ` — ${b.piece}` : '';
+          datesHtml += `<div class="booking-row">&#9658; ${b.teacher_name || '—'}${piece} (Horário: ${sh} às ${eh})</div>`;
+        }
+      }
+
+      sectionsHtml += `
+        <div class="section-block">
+          <div class="section-title">${TYPE_LABELS[type]}</div>
+          ${datesHtml}
+        </div>`;
+    }
+
+    if (!sectionsHtml) {
+      sectionsHtml = '<p style="text-align:center;padding:2.5rem;color:#777">Nenhuma reserva futura cadastrada.</p>';
+    }
+
+    const updatedDate = new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' });
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Cronograma — Sala Marcos Caruso</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, Helvetica, sans-serif; color: #111; padding: 28px 36px; font-size: 13px; }
+.pdf-header { text-align: center; margin-bottom: 28px; }
+.main-title { font-size: 22px; font-weight: 900; letter-spacing: 3px; margin-bottom: 10px; }
+.room-badge { display: inline-block; background: #111; color: #fff; font-size: 15px; font-weight: bold; letter-spacing: 4px; padding: 7px 28px; margin-bottom: 10px; }
+.updated-label { font-size: 11px; color: #666; margin-top: 4px; }
+.section-block { margin-bottom: 20px; }
+.section-title { font-size: 13px; font-weight: bold; letter-spacing: 2px; border-bottom: 2.5px solid #111; padding-bottom: 5px; margin-bottom: 8px; margin-top: 22px; }
+.date-bar { background: #444; color: #fff; font-size: 12px; font-weight: bold; padding: 4px 10px; margin: 8px 0 4px; letter-spacing: 0.5px; }
+.booking-row { padding: 3px 12px; font-size: 12.5px; line-height: 1.7; }
+.pdf-footer { margin-top: 32px; border-top: 1px solid #ddd; padding-top: 10px; text-align: center; font-size: 11px; color: #666; }
+@media print { body { padding: 14px 20px; } .section-block { page-break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="pdf-header">
+  <div class="main-title">CRONOGRAMA DE RESERVAS</div>
+  <div><span class="room-badge">SALA MARCOS CARUSO</span></div>
+  <div class="updated-label">Atualizado em ${updatedDate}</div>
+</div>
+${sectionsHtml}
+<div class="pdf-footer">Falar com a recepção para reservas na Sala Marcos Caruso</div>
+</body>
+</html>`;
+
+    const w = window.open('', '_blank', 'width=820,height=950');
+    if (!w) { toast('Permita popups no navegador para exportar o PDF.', 'warning'); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 700);
+  }
+
+  // ─── Export: Mapa de Salas (PDF) ─────────────────────────────────
+  function exportMapPDF() {
+    const weekKey    = getWeekMonday(mapWeekOffset);
+    const weekLabel  = formatWeekRange(mapWeekOffset);
+    const weekSched  = roomSchedules.filter(s => s.week_start === weekKey);
+
+    // Ordem fixa de salas (colunas)
+    const FIXED_ROOMS = ['Stanislavski','Lucia Capuani','Martins Pena','Sala de Video','Marcos Caruso','Saguao'];
+    const orderedRooms = FIXED_ROOMS.map(name => allRooms.find(r => r.name === name) || { name, id: null });
+
+    const DAY_ORDER    = ['monday','tuesday','wednesday','thursday','friday','saturday'];
+    const DAY_LABEL_PT = {
+      monday:    'Segunda-Feira', tuesday:  'Terça-Feira',
+      wednesday: 'Quarta-Feira',  thursday: 'Quinta-Feira',
+      friday:    'Sexta-Feira',   saturday: 'Sábado',
+    };
+    const DAY_OFFSET = { monday:0, tuesday:1, wednesday:2, thursday:3, friday:4, saturday:5 };
+    const MONTH_SHORT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+    const monDate = new Date(weekKey + 'T12:00:00');
+
+    // Construir linhas por dia
+    const rows = [];
+    for (const day of DAY_ORDER) {
+      const daySched = weekSched.filter(s => s.classes?.day_of_week === day);
+      if (!daySched.length) continue;
+
+      const dayDate = new Date(monDate);
+      dayDate.setDate(monDate.getDate() + (DAY_OFFSET[day] || 0));
+      const dateLabel = `${String(dayDate.getDate()).padStart(2,'0')}/${MONTH_SHORT[dayDate.getMonth()]}`;
+
+      const cells = orderedRooms.map(room => {
+        const s = daySched.find(sc => sc.room_id === room.id);
+        if (!s) return null;
+        const cls     = s.classes;
+        const course  = cls?.courses?.name  || '—';
+        const teacher = (cls?.profiles?.name || '—').split(' ')[0];
+        return { course, teacher };
+      });
+
+      rows.push({ dayLabel: DAY_LABEL_PT[day], dateLabel, cells });
+    }
+
+    const theadCols = orderedRooms.map(r => `<th>${r.name}</th>`).join('');
+    const tbodyRows = rows.length
+      ? rows.map(r => {
+          const cells = r.cells.map(c =>
+            c === null
+              ? `<td class="empty">—</td>`
+              : `<td>${escapeHtml(c.course)}<br><span class="tname">${escapeHtml(c.teacher)}</span></td>`
+          ).join('');
+          return `<tr>
+            <td class="day-col"><strong>${r.dayLabel}</strong><br><span class="ddate">${r.dateLabel}</span></td>
+            ${cells}
+          </tr>`;
+        }).join('')
+      : `<tr><td colspan="${orderedRooms.length + 1}" class="empty" style="padding:2rem;text-align:center">
+           Nenhuma turma atribuida nesta semana.
+         </td></tr>`;
+
+    const updatedDate = new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' });
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Mapa de Salas — ${weekLabel}</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, Helvetica, sans-serif; color: #111; padding: 20px 24px; font-size: 12px; }
+.pdf-header { text-align: center; margin-bottom: 18px; }
+.main-title { font-size: 20px; font-weight: 900; letter-spacing: 3px; margin-bottom: 4px; }
+.week-label { font-size: 12px; color: #555; margin-bottom: 2px; }
+.updated-label { font-size: 10px; color: #888; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+th { background: #111; color: #fff; padding: 7px 8px; font-size: 10px; font-weight: bold;
+     letter-spacing: 0.5px; text-align: center; border: 1px solid #111; }
+td { border: 1px solid #bbb; padding: 6px 8px; font-size: 11px; text-align: center; vertical-align: middle; }
+td.day-col { background: #eee; text-align: left; font-size: 11px; min-width: 100px; }
+td.empty { color: #bbb; }
+.tname { font-size: 10px; color: #555; display: block; margin-top: 2px; }
+.ddate { font-size: 10px; color: #777; font-weight: normal; }
+.pdf-footer { margin-top: 14px; text-align: right; font-size: 10px; color: #888; }
+@media print { body { padding: 8px 12px; } }
+</style>
+</head>
+<body>
+<div class="pdf-header">
+  <div class="main-title">MAPA DE SALAS</div>
+  <div class="week-label">Semana de ${weekLabel}</div>
+  <div class="updated-label">Gerado em ${updatedDate}</div>
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>Dia / Data</th>
+      ${theadCols}
+    </tr>
+  </thead>
+  <tbody>
+    ${tbodyRows}
+  </tbody>
+</table>
+<div class="pdf-footer">TPC — Teatro Popular de Comédia</div>
+</body>
+</html>`;
+
+    const w = window.open('', '_blank', 'width=1050,height=720');
+    if (!w) { toast('Permita popups no navegador para exportar o PDF.', 'warning'); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 700);
+  }
+
   return {
     render, switchTab, prevWeek, nextWeek,
     prevMapWeek, nextMapWeek, resetMapWeek,
@@ -688,5 +923,6 @@ const RoomsModule = (() => {
     openChangeRequest, saveChangeRequest, resolveChangeReq,
     openAssignRoom, assignRoom, unassignRoom, unassignSchedule,
     openChangeReqsAdmin,
+    exportCarusoPDF, exportMapPDF,
   };
 })();
