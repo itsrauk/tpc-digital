@@ -359,11 +359,37 @@ const CoursesModule = (() => {
   async function openAttendance(enrollmentId, classId) {
     const today = new Date().toISOString().split('T')[0];
 
-    const { data: existing } = await db.from('attendance')
-      .select('*').eq('enrollment_id', enrollmentId).order('date', { ascending: false }).limit(10);
+    // Busca dados do aluno + todo o histórico
+    const [enrollRes, attRes] = await Promise.all([
+      db.from('enrollments').select('students(name, ra)').eq('id', enrollmentId).single(),
+      db.from('attendance')
+        .select('*').eq('enrollment_id', enrollmentId)
+        .order('date', { ascending: false }),
+    ]);
 
-    openModal('Registro de Frequencia', `
-      <div class="attendance-form">
+    const studentName = enrollRes.data?.students?.name || '—';
+    const studentRa   = enrollRes.data?.students?.ra   || '';
+    const records     = attRes.data || [];
+
+    // Totais
+    const total     = records.length;
+    const present   = records.filter(r => r.status === 'present').length;
+    const absent    = records.filter(r => r.status === 'absent').length;
+    const justified = records.filter(r => r.status === 'justified').length;
+    const rate      = total > 0 ? Math.round((present / total) * 100) : null;
+
+    openModal(`Frequencia — ${escapeHtml(studentName)}`, `
+      ${total > 0 ? `
+      <div class="chamada-summary" style="margin-bottom:1.25rem;flex-wrap:wrap;gap:0.5rem;">
+        <span class="chamada-count present">${present} presencas</span>
+        <span class="chamada-count absent">${absent} faltas</span>
+        <span class="chamada-count justified">${justified} justificadas</span>
+        <span class="chamada-count" style="background:var(--bg-tertiary);color:var(--text-secondary);">
+          ${rate}% de presenca
+        </span>
+      </div>` : ''}
+
+      <div class="form-grid" style="margin-bottom:1rem;">
         <div class="form-group">
           <label>Data</label>
           <input type="date" id="att-date" class="input" value="${today}">
@@ -376,25 +402,30 @@ const CoursesModule = (() => {
             <option value="justified">Falta Justificada</option>
           </select>
         </div>
-        <button class="btn btn-primary mt-2" onclick="CoursesModule.saveAttendance('${enrollmentId}', '${classId}')">
-          Registrar
-        </button>
       </div>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:1.5rem"
+        onclick="CoursesModule.saveAttendance('${enrollmentId}', '${classId}')">
+        Registrar / Atualizar
+      </button>
 
-      <h3 class="detail-section-title mt-4">Historico Recente</h3>
-      <div class="table-wrapper mini">
-        <table class="data-table">
-          <thead><tr><th>Data</th><th>Situacao</th></tr></thead>
-          <tbody>
-            ${(existing || []).map(a => `<tr>
-              <td>${formatDate(a.date)}</td>
-              <td><span class="badge badge-${a.status === 'present' ? 'success' : a.status === 'justified' ? 'warning' : 'danger'}">
-                ${a.status === 'present' ? 'Presente' : a.status === 'justified' ? 'Justificada' : 'Falta'}
-              </span></td>
-            </tr>`).join('') || '<tr><td colspan="2" class="empty-state">Sem registros.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
+      <h3 class="detail-section-title">Historico Completo (${total} registros)</h3>
+      ${total > 0
+        ? `<div class="table-wrapper mini" style="max-height:40vh;overflow-y:auto;">
+            <table class="data-table">
+              <thead><tr><th>Data</th><th>Situacao</th><th>Obs</th></tr></thead>
+              <tbody>
+                ${records.map(a => `<tr>
+                  <td>${formatDate(a.date)}</td>
+                  <td><span class="badge badge-${a.status === 'present' ? 'success' : a.status === 'justified' ? 'warning' : 'danger'}">
+                    ${a.status === 'present' ? 'Presente' : a.status === 'justified' ? 'Justificada' : 'Falta'}
+                  </span></td>
+                  <td class="text-secondary" style="font-size:12px">${escapeHtml(a.notes || '—')}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`
+        : `<p class="empty-state">Nenhum registro de frequencia ainda.</p>`
+      }
     `);
   }
 

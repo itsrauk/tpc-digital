@@ -4,14 +4,32 @@ const RoomsModule = (() => {
   const ROOM_SIZE  = { large: 'Grande', medium: 'Media', small: 'Pequena' };
   const SIZE_ORDER = { large: 1, medium: 2, small: 3 };
 
-  let allRooms    = [];
-  let allClasses  = [];
-  let bookings    = [];
-  let changeReqs  = [];
-  let activeTab   = 'map';
-  let weekOffset  = 0; // semanas em relação à atual
+  let allRooms      = [];
+  let allClasses    = [];   // turmas ativas
+  let roomSchedules = [];   // agendamentos semanais de sala
+  let bookings      = [];
+  let changeReqs    = [];
+  let activeTab     = 'map';
+  let weekOffset    = 0;    // semanas (cronograma Caruso)
+  let mapWeekOffset = 0;    // semanas (mapa de salas)
 
-  // ─── Render principal ──────────────────────────────────────
+  // ── Helpers de semana ─────────────────────────────────────────
+  function getWeekMonday(offset = 0) {
+    const d = new Date();
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + offset * 7);
+    d.setHours(0, 0, 0, 0);
+    return d.toISOString().split('T')[0]; // YYYY-MM-DD (segunda-feira)
+  }
+
+  function formatWeekRange(offset = 0) {
+    const mon = new Date();
+    mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7) + offset * 7);
+    const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
+    const opts = { day: 'numeric', month: 'short' };
+    return `${mon.toLocaleDateString('pt-BR', opts)} — ${fri.toLocaleDateString('pt-BR', { ...opts, year: 'numeric' })}`;
+  }
+
+  // ─── Render principal ──────────────────────────────────────────
   async function render() {
     document.getElementById('view-content').innerHTML =
       `<div class="loading-state">Carregando salas...</div>`;
@@ -20,50 +38,58 @@ const RoomsModule = (() => {
 
   async function loadData() {
     try {
-      const [roomsRes, classesRes, bookingsRes, changeRes] = await Promise.all([
+      const [roomsRes, classesRes, schedulesRes, bookingsRes, changeRes] = await Promise.all([
         db.from('rooms').select('*').order('sort_order'),
-        db.from('classes').select('id, room_id, room_name, teacher_name, teacher_id, courses(name, level, type)'),
+
+        // FIX: usar profiles(name) em vez de teacher_name (coluna inexistente em classes)
+        db.from('classes')
+          .select('id, room_id, room_name, teacher_id, status, is_sandbox, courses(name, level, type), profiles(name)')
+          .eq('status', 'active'),
+
+        // Agendamentos semanais de sala
+        db.from('room_schedules')
+          .select('id, room_id, class_id, week_start, classes(id, teacher_id, day_of_week, schedule, is_sandbox, courses(name, level, type), profiles(name))'),
+
         db.from('room_bookings').select('*').order('booking_date').order('start_time'),
         db.from('room_change_requests').select('*').order('created_at', { ascending: false }),
       ]);
 
-      allRooms   = roomsRes.data  || [];
-      allClasses = classesRes.data || [];
-      bookings   = bookingsRes.data || [];
-      changeReqs = changeRes.data  || [];
+      allRooms      = roomsRes.data      || [];
+      allClasses    = classesRes.data    || [];
+      roomSchedules = schedulesRes.data  || [];
+      bookings      = bookingsRes.data   || [];
+      changeReqs    = changeRes.data     || [];
 
       renderView();
     } catch (err) {
       document.getElementById('view-content').innerHTML =
         `<div class="error-state">Erro ao carregar: ${escapeHtml(err.message)}<br>
-         Execute sql/fix_v6.sql no Supabase.</div>`;
+         Execute sql/fix_v6.sql e sql/fix_v10.sql no Supabase.</div>`;
     }
   }
 
   function renderView() {
-    const isAdmin = Auth.isAdmin();
-    const el = document.getElementById('view-content');
+    const isAdmin   = Auth.isAdmin();
+    const isTeacher = Auth.isTeacher();
+    const el        = document.getElementById('view-content');
+    const pending   = changeReqs.filter(r => r.status === 'pending').length;
 
     el.innerHTML = `
       <div class="view-header">
         <h1 class="view-title">Salas</h1>
-        <div class="view-actions">
-          ${isAdmin ? `<button class="btn btn-secondary" onclick="RoomsModule.openChangeReqsAdmin()">
-            Pedidos de Troca (${changeReqs.filter(r=>r.status==='pending').length})
-          </button>` : ''}
-        </div>
+        <div class="view-actions"></div>
       </div>
 
       <div class="tab-bar">
-        <button class="tab-btn ${activeTab==='map' ? 'active':''}" onclick="RoomsModule.switchTab('map')">
+        <button class="tab-btn ${activeTab === 'map'      ? 'active' : ''}" onclick="RoomsModule.switchTab('map')">
           Mapa de Salas
         </button>
-        <button class="tab-btn ${activeTab==='caruso' ? 'active':''}" onclick="RoomsModule.switchTab('caruso')">
+        <button class="tab-btn ${activeTab === 'caruso'   ? 'active' : ''}" onclick="RoomsModule.switchTab('caruso')">
           Cronograma — Marcos Caruso
         </button>
-        ${isAdmin ? `<button class="tab-btn ${activeTab==='requests' ? 'active':''}" onclick="RoomsModule.switchTab('requests')">
-          Pedidos de Troca
-        </button>` : ''}
+        <button class="tab-btn ${activeTab === 'requests' ? 'active' : ''}" onclick="RoomsModule.switchTab('requests')">
+          Pedidos de Troca${pending > 0 ? ` <span class="badge badge-warning" style="font-size:10px;padding:1px 6px;margin-left:4px">${pending}</span>` : ''}
+        </button>
       </div>
 
       <div id="rooms-content"></div>
@@ -82,48 +108,71 @@ const RoomsModule = (() => {
   function renderTab() {
     const el = document.getElementById('rooms-content');
     if (!el) return;
-    if (activeTab === 'map')      renderMap(el);
+    if (activeTab === 'map')          renderMap(el);
     else if (activeTab === 'caruso')  renderCaruso(el);
     else if (activeTab === 'requests') renderChangeRequests(el);
   }
 
-  // ─── Mapa de Salas ─────────────────────────────────────────
+  // ─── Mapa de Salas (semanal) ───────────────────────────────────
   function renderMap(container) {
-    const profile   = Auth.getProfile();
-    const isAdmin   = Auth.isAdmin();
-    const myRoomIds = allClasses
-      .filter(c => c.teacher_id === profile?.id)
-      .map(c => c.room_id)
-      .filter(Boolean);
+    const isAdmin    = Auth.isAdmin();
+    const profile    = Auth.getProfile();
+    const weekKey    = getWeekMonday(mapWeekOffset);
+    const weekLabel  = formatWeekRange(mapWeekOffset);
+
+    // Agendamentos da semana selecionada
+    const weekSched  = roomSchedules.filter(s => s.week_start === weekKey);
 
     const rooms = allRooms.length
-      ? [...allRooms].sort((a,b) => (SIZE_ORDER[a.size]||9) - (SIZE_ORDER[b.size]||9) || a.sort_order - b.sort_order)
+      ? [...allRooms].sort((a, b) => (SIZE_ORDER[a.size] || 9) - (SIZE_ORDER[b.size] || 9) || a.sort_order - b.sort_order)
       : ROOM_ORDER.map(name => ({ name, size: 'medium' }));
 
     container.innerHTML = `
+      <div class="caruso-header" style="margin-bottom:1rem;">
+        <button class="btn btn-secondary" onclick="RoomsModule.prevMapWeek()">&#8249;</button>
+        <span style="font-weight:600">${weekLabel}</span>
+        <button class="btn btn-secondary" onclick="RoomsModule.nextMapWeek()">&#8250;</button>
+        ${mapWeekOffset !== 0 ? `<button class="btn btn-secondary" style="margin-left:8px;font-size:11px"
+          onclick="RoomsModule.resetMapWeek()">Semana atual</button>` : ''}
+      </div>
+
       <div class="room-map-grid">
         ${rooms.map(room => {
-          const classes = allClasses.filter(c => c.room_id === room.id);
-          const isMyRoom = myRoomIds.includes(room.id);
+          // Turmas alocadas nesta sala nesta semana
+          const schedInRoom = weekSched.filter(s => s.room_id === room.id);
+          const isMyRoom    = schedInRoom.some(s => s.classes?.teacher_id === profile?.id);
 
           return `
-            <div class="room-card ${isMyRoom ? 'room-card-mine' : ''} room-size-${room.size}">
+            <div class="room-card ${isMyRoom ? 'room-card-mine' : ''} room-size-${room.size || 'medium'}">
               <div class="room-card-header">
                 <div>
                   <div class="room-card-name">${escapeHtml(room.name)}</div>
-                  <div class="room-card-size">${ROOM_SIZE[room.size] || room.size}${room.capacity ? ` · ${room.capacity} pessoas` : ''}</div>
+                  <div class="room-card-size">${ROOM_SIZE[room.size] || room.size || ''}${room.capacity ? ` · ${room.capacity} pessoas` : ''}</div>
                 </div>
                 ${isMyRoom ? `<span class="badge badge-success" style="font-size:10px">Minha Sala</span>` : ''}
               </div>
 
               <div class="room-card-classes">
-                ${classes.length
-                  ? classes.map(c => `
-                      <div class="room-class-item">
-                        <div class="room-class-name">${escapeHtml(c.courses?.name || '—')} ${c.courses?.level ? `Nível ${c.courses.level}` : ''}</div>
-                        <div class="room-class-teacher text-secondary">${escapeHtml(c.teacher_name || '—')}</div>
-                      </div>`).join('')
-                  : `<div class="text-secondary" style="font-size:12px;padding:4px 0">Sem turmas atribuidas</div>`
+                ${schedInRoom.length
+                  ? schedInRoom.map(s => {
+                      const cls = s.classes;
+                      const isSandbox = cls?.is_sandbox;
+                      return `
+                        <div class="room-class-item">
+                          <div class="room-class-name">
+                            ${escapeHtml(cls?.courses?.name || '—')}
+                            ${cls?.courses?.level ? ` Nível ${cls.courses.level}` : ''}
+                            ${isSandbox ? '<span class="class-card-sandbox">TESTE</span>' : ''}
+                          </div>
+                          <div class="room-class-teacher text-secondary">
+                            ${escapeHtml(cls?.profiles?.name || '—')}
+                            · ${DAYS_PT[cls?.day_of_week] || ''} ${cls?.schedule?.substring(0,5) || ''}
+                          </div>
+                          ${isAdmin ? `<button class="btn-icon btn-icon-danger" style="margin-top:4px;font-size:11px"
+                            onclick="RoomsModule.unassignSchedule('${s.id}')">Remover</button>` : ''}
+                        </div>`;
+                    }).join('')
+                  : `<div class="text-secondary" style="font-size:12px;padding:4px 0">Livre esta semana</div>`
                 }
               </div>
 
@@ -131,7 +180,7 @@ const RoomsModule = (() => {
                 ${isAdmin
                   ? `<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px"
                        onclick="RoomsModule.openAssignRoom('${room.id}','${escapeHtml(room.name)}')">
-                       Atribuir Turma
+                       + Atribuir Turma
                      </button>`
                   : !isMyRoom
                     ? `<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px"
@@ -147,12 +196,15 @@ const RoomsModule = (() => {
     `;
   }
 
-  // ─── Cronograma Marcos Caruso ──────────────────────────────
-  function renderCaruso(container) {
-    const isAdmin = Auth.isAdmin();
-    const profile = Auth.getProfile();
+  function prevMapWeek() { mapWeekOffset--; renderTab(); }
+  function nextMapWeek() { mapWeekOffset++; renderTab(); }
+  function resetMapWeek() { mapWeekOffset = 0; renderTab(); }
 
-    // semana atual + offset
+  // ─── Cronograma Marcos Caruso ──────────────────────────────────
+  function renderCaruso(container) {
+    const profile = Auth.getProfile();
+    const isAdmin = Auth.isAdmin();
+
     const today = new Date();
     const mon   = new Date(today);
     mon.setDate(today.getDate() - ((today.getDay() + 6) % 7) + weekOffset * 7);
@@ -164,10 +216,9 @@ const RoomsModule = (() => {
       days.push(d);
     }
 
-    const weekStr = `${days[0].toLocaleDateString('pt-BR', {day:'numeric',month:'short'})} — ${days[6].toLocaleDateString('pt-BR', {day:'numeric',month:'short',year:'numeric'})}`;
+    const weekStr = `${days[0].toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })} — ${days[6].toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
-    // filtrar reservas da semana para Marcos Caruso
-    const carusoRoom = allRooms.find(r => r.name === 'Marcos Caruso');
+    const carusoRoom  = allRooms.find(r => r.name === 'Marcos Caruso');
     const weekBookings = bookings.filter(b => {
       if (carusoRoom && b.room_id !== carusoRoom.id) return false;
       const bd = new Date(b.booking_date + 'T00:00:00');
@@ -179,29 +230,28 @@ const RoomsModule = (() => {
         <button class="btn btn-secondary" onclick="RoomsModule.prevWeek()">&#8249;</button>
         <span style="font-weight:600">${weekStr}</span>
         <button class="btn btn-secondary" onclick="RoomsModule.nextWeek()">&#8250;</button>
-        <button class="btn btn-primary" style="margin-left:auto"
-          onclick="RoomsModule.openBookingForm()">
+        <button class="btn btn-primary" style="margin-left:auto" onclick="RoomsModule.openBookingForm()">
           + Reservar
         </button>
       </div>
 
       <div class="caruso-week">
         ${days.map(day => {
-          const iso = day.toISOString().split('T')[0];
-          const isToday = iso === today.toISOString().split('T')[0];
-          const dayBookings = weekBookings.filter(b => b.booking_date === iso)
-            .sort((a,b) => a.start_time.localeCompare(b.start_time));
+          const iso       = day.toISOString().split('T')[0];
+          const isToday   = iso === today.toISOString().split('T')[0];
+          const dayBooks  = weekBookings.filter(b => b.booking_date === iso)
+            .sort((a, b) => a.start_time.localeCompare(b.start_time));
 
           return `
             <div class="caruso-day ${isToday ? 'caruso-day-today' : ''}">
               <div class="caruso-day-header">
-                <div class="caruso-day-name">${day.toLocaleDateString('pt-BR', {weekday:'short'})}</div>
+                <div class="caruso-day-name">${day.toLocaleDateString('pt-BR', { weekday: 'short' })}</div>
                 <div class="caruso-day-date">${day.getDate()}</div>
               </div>
               <div class="caruso-day-slots">
-                ${dayBookings.length
-                  ? dayBookings.map(b => {
-                      const isOwn = b.teacher_id === profile?.id;
+                ${dayBooks.length
+                  ? dayBooks.map(b => {
+                      const isOwn     = b.teacher_id === profile?.id;
                       const canCancel = isOwn || isAdmin;
                       return `
                         <div class="caruso-booking ${isOwn ? 'caruso-booking-own' : ''}">
@@ -210,10 +260,7 @@ const RoomsModule = (() => {
                           ${b.class_name ? `<div class="caruso-booking-class">${escapeHtml(b.class_name)}</div>` : ''}
                           ${b.piece ? `<div class="caruso-booking-piece text-secondary">${escapeHtml(b.piece)}</div>` : ''}
                           ${canCancel
-                            ? `<button class="caruso-cancel-btn"
-                                 onclick="RoomsModule.cancelBooking('${b.id}')">
-                                 Cancelar
-                               </button>`
+                            ? `<button class="caruso-cancel-btn" onclick="RoomsModule.cancelBooking('${b.id}')">Cancelar</button>`
                             : ''}
                         </div>`;
                     }).join('')
@@ -229,48 +276,62 @@ const RoomsModule = (() => {
   function prevWeek() { weekOffset--; renderTab(); }
   function nextWeek() { weekOffset++; renderTab(); }
 
-  // ─── Pedidos de Troca ──────────────────────────────────────
+  // ─── Pedidos de Troca ─────────────────────────────────────────
   function renderChangeRequests(container) {
     const isAdmin = Auth.isAdmin();
     const profile = Auth.getProfile();
 
-    const visible = isAdmin
-      ? changeReqs
-      : changeReqs.filter(r => r.teacher_id === profile?.id);
+    // Professores veem todos os pedidos para coordenar entre si
+    // Admin vê todos e pode aprovar/recusar
+    const visible = changeReqs;
 
-    container.innerHTML = visible.length
-      ? `<div class="table-wrapper"><table class="data-table">
+    if (!visible.length) {
+      container.innerHTML = `<div class="empty-state">Nenhuma solicitacao de troca.</div>`;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table class="data-table">
           <thead><tr>
             <th>Professor</th><th>Turma</th><th>Sala Atual</th>
             <th>Sala Solicitada</th><th>Motivo</th><th>Status</th>
             ${isAdmin ? '<th>Acoes</th>' : ''}
           </tr></thead>
           <tbody>
-            ${visible.map(r => `<tr>
-              <td>${escapeHtml(r.teacher_name||'—')}</td>
-              <td>${escapeHtml(r.class_name||'—')}</td>
-              <td>${escapeHtml(r.current_room||'—')}</td>
-              <td class="text-accent">${escapeHtml(r.requested_room||'—')}</td>
-              <td class="text-secondary">${escapeHtml(r.reason||'—')}</td>
-              <td><span class="badge badge-${r.status==='approved'?'success':r.status==='rejected'?'danger':'warning'}">
-                ${r.status==='approved'?'Aprovado':r.status==='rejected'?'Recusado':'Pendente'}
-              </span></td>
-              ${isAdmin ? `<td class="actions-cell">
-                ${r.status==='pending' ? `
-                  <button class="btn-icon" onclick="RoomsModule.resolveChangeReq('${r.id}','approved')">Aprovar</button>
-                  <button class="btn-icon btn-icon-danger" onclick="RoomsModule.resolveChangeReq('${r.id}','rejected')">Recusar</button>
-                ` : '—'}
-              </td>` : ''}
-            </tr>`).join('')}
+            ${visible.map(r => {
+              const isOwn = r.teacher_id === profile?.id;
+              return `<tr ${isOwn ? 'style="background:rgba(212,175,55,.06)"' : ''}>
+                <td>
+                  ${escapeHtml(r.teacher_name || '—')}
+                  ${isOwn ? `<span class="badge badge-info" style="font-size:9px;margin-left:4px">meu</span>` : ''}
+                </td>
+                <td>${escapeHtml(r.class_name || '—')}</td>
+                <td>${escapeHtml(r.current_room || '—')}</td>
+                <td class="text-accent">${escapeHtml(r.requested_room || '—')}</td>
+                <td class="text-secondary">${escapeHtml(r.reason || '—')}</td>
+                <td>
+                  <span class="badge badge-${r.status === 'approved' ? 'success' : r.status === 'rejected' ? 'danger' : 'warning'}">
+                    ${r.status === 'approved' ? 'Aprovado' : r.status === 'rejected' ? 'Recusado' : 'Pendente'}
+                  </span>
+                </td>
+                ${isAdmin ? `<td class="actions-cell">
+                  ${r.status === 'pending' ? `
+                    <button class="btn-icon" onclick="RoomsModule.resolveChangeReq('${r.id}','approved')">Aprovar</button>
+                    <button class="btn-icon btn-icon-danger" onclick="RoomsModule.resolveChangeReq('${r.id}','rejected')">Recusar</button>
+                  ` : '—'}
+                </td>` : ''}
+              </tr>`;
+            }).join('')}
           </tbody>
-        </table></div>`
-      : `<div class="empty-state">Nenhuma solicitacao de troca.</div>`;
+        </table>
+      </div>`;
   }
 
-  // ─── Formulário de Reserva ────────────────────────────────
+  // ─── Formulário de Reserva (Marcos Caruso) ────────────────────
   async function openBookingForm() {
-    const profile  = Auth.getProfile();
-    const myClass  = allClasses.find(c => c.teacher_id === profile?.id);
+    const profile = Auth.getProfile();
+    const myClass = allClasses.find(c => c.teacher_id === profile?.id);
 
     openModal('Reservar Marcos Caruso', `
       <form id="booking-form" onsubmit="RoomsModule.saveBooking(event)">
@@ -331,7 +392,6 @@ const RoomsModule = (() => {
 
     const carusoRoom = allRooms.find(r => r.name === 'Marcos Caruso');
 
-    // Verificar conflito de horário
     const dayBookings = bookings.filter(b =>
       b.booking_date === data.booking_date &&
       (!carusoRoom || b.room_id === carusoRoom.id) &&
@@ -341,7 +401,7 @@ const RoomsModule = (() => {
       data.start_time < b.end_time && data.end_time > b.start_time
     );
     if (conflict) {
-      toast(`Conflito de horario com ${conflict.teacher_name} (${conflict.start_time.slice(0,5)}—${conflict.end_time.slice(0,5)}).`, 'error');
+      toast(`Conflito com ${conflict.teacher_name} (${conflict.start_time.slice(0,5)}—${conflict.end_time.slice(0,5)}).`, 'error');
       return;
     }
 
@@ -362,13 +422,11 @@ const RoomsModule = (() => {
 
     if (error) return toast('Erro ao reservar: ' + error.message, 'error');
 
-    // Notificar admins
     await NotificationsHelper.notifyAdmins(
       'Nova reserva — Marcos Caruso',
       `${data.teacher_name} reservou das ${data.start_time.slice(0,5)} às ${data.end_time.slice(0,5)} em ${formatDate(data.booking_date)}`,
       'room'
     );
-
     AuditLog.log('room_booked', 'room', carusoRoom?.id, 'Marcos Caruso',
       `${data.teacher_name} reservou Marcos Caruso em ${formatDate(data.booking_date)} das ${data.start_time.slice(0,5)} às ${data.end_time.slice(0,5)}`);
 
@@ -386,10 +444,10 @@ const RoomsModule = (() => {
     await loadData();
   }
 
-  // ─── Solicitação de Troca ────────────────────────────────
+  // ─── Solicitação de Troca ──────────────────────────────────────
   async function openChangeRequest(fromRoomId, fromRoomName) {
-    const profile = Auth.getProfile();
-    const myClass = allClasses.find(c => c.teacher_id === profile?.id);
+    const profile    = Auth.getProfile();
+    const myClass    = allClasses.find(c => c.teacher_id === profile?.id);
     const otherRooms = allRooms.filter(r => r.id !== fromRoomId);
 
     openModal('Solicitar Troca de Sala', `
@@ -408,7 +466,7 @@ const RoomsModule = (() => {
             <label>Sala Desejada *</label>
             <select name="requested_room" class="input" required>
               <option value="">Selecione...</option>
-              ${otherRooms.map(r => `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)} (${ROOM_SIZE[r.size]||r.size})</option>`).join('')}
+              ${otherRooms.map(r => `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)} (${ROOM_SIZE[r.size] || r.size})</option>`).join('')}
             </select>
           </div>
           <div class="form-group span-2">
@@ -476,39 +534,64 @@ const RoomsModule = (() => {
     await loadData();
   }
 
-  // ─── Atribuir turma a sala (admin) ────────────────────────
+  // ─── Atribuir turma a sala para a semana (admin) ───────────────
   async function openAssignRoom(roomId, roomName) {
-    const unassigned = allClasses.filter(c => !c.room_id || c.room_id !== roomId);
-    const assigned   = allClasses.filter(c => c.room_id === roomId);
+    const weekKey    = getWeekMonday(mapWeekOffset);
+    const weekLabel  = formatWeekRange(mapWeekOffset);
+
+    // Turmas já nesta sala nesta semana
+    const alreadyHere = roomSchedules.filter(s => s.room_id === roomId && s.week_start === weekKey);
+
+    // Turmas disponíveis (ativas, não sandbox, não já nesta sala nesta semana)
+    const alreadyHereIds = new Set(alreadyHere.map(s => s.class_id));
+    const available = allClasses.filter(c => !c.is_sandbox && !alreadyHereIds.has(c.id));
 
     openModal(`Atribuir Turmas — ${roomName}`, `
-      <div style="margin-bottom:1rem">
-        <p class="text-secondary" style="font-size:13px;margin-bottom:0.75rem">
-          Turmas ja nesta sala:
+      <p class="text-secondary" style="font-size:13px;margin-bottom:1rem;">
+        Semana: <strong>${weekLabel}</strong>
+      </p>
+
+      <div style="margin-bottom:1.25rem">
+        <p class="text-secondary" style="font-size:13px;margin-bottom:0.5rem">
+          Turmas ja atribuidas nesta semana:
         </p>
-        ${assigned.length
-          ? assigned.map(c => `
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
-                <span>${escapeHtml(c.courses?.name||'—')} — ${escapeHtml(c.teacher_name||'—')}</span>
-                <button class="btn-icon btn-icon-danger"
-                  onclick="RoomsModule.unassignRoom('${c.id}')">Remover</button>
-              </div>`).join('')
-          : `<p class="text-secondary" style="font-size:12px">Nenhuma turma.</p>`
+        ${alreadyHere.length
+          ? alreadyHere.map(s => {
+              const cls = s.classes;
+              return `
+                <div style="display:flex;justify-content:space-between;align-items:center;
+                            padding:7px 0;border-bottom:1px solid var(--border)">
+                  <span>
+                    ${escapeHtml(cls?.courses?.name || '—')} —
+                    ${escapeHtml(cls?.profiles?.name || '—')}
+                    <span class="text-secondary" style="font-size:11px">
+                      · ${DAYS_PT[cls?.day_of_week] || ''} ${cls?.schedule?.substring(0,5) || ''}
+                    </span>
+                  </span>
+                  <button class="btn-icon btn-icon-danger"
+                    onclick="RoomsModule.unassignSchedule('${s.id}')">Remover</button>
+                </div>`;
+            }).join('')
+          : `<p class="text-secondary" style="font-size:12px">Nenhuma turma esta semana.</p>`
         }
       </div>
+
       <div>
-        <p class="text-secondary" style="font-size:13px;margin-bottom:0.75rem">Adicionar turma:</p>
-        <select id="assign-class-select" class="input">
-          <option value="">Selecione uma turma...</option>
-          ${unassigned.map(c => `
-            <option value="${c.id}">
-              ${escapeHtml(c.courses?.name||'Sem nome')} — ${escapeHtml(c.teacher_name||'—')}
-            </option>`).join('')}
-        </select>
-        <button class="btn btn-primary" style="margin-top:0.75rem;width:100%"
-          onclick="RoomsModule.assignRoom('${roomId}','${escapeHtml(roomName)}')">
-          Atribuir
-        </button>
+        <p class="text-secondary" style="font-size:13px;margin-bottom:0.5rem">Adicionar turma:</p>
+        ${available.length
+          ? `<select id="assign-class-select" class="input">
+               <option value="">— Selecione uma turma —</option>
+               ${available.map(c => `
+                 <option value="${c.id}">
+                   ${escapeHtml(c.courses?.name || 'Sem nome')} — ${escapeHtml(c.profiles?.name || '—')}
+                 </option>`).join('')}
+             </select>
+             <button class="btn btn-primary" style="margin-top:0.75rem;width:100%"
+               onclick="RoomsModule.assignRoom('${roomId}','${escapeHtml(roomName)}')">
+               Atribuir para esta semana
+             </button>`
+          : `<p class="text-secondary" style="font-size:12px">Todas as turmas ativas ja foram atribuidas.</p>`
+        }
       </div>
     `);
   }
@@ -517,15 +600,25 @@ const RoomsModule = (() => {
     const classId = document.getElementById('assign-class-select')?.value;
     if (!classId) return toast('Selecione uma turma.', 'warning');
 
-    const { error } = await db.from('classes').update({ room_id: roomId, room_name: roomName }).eq('id', classId);
-    if (error) return toast('Erro: ' + error.message, 'error');
+    const weekKey = getWeekMonday(mapWeekOffset);
+
+    const { error } = await db.from('room_schedules').insert([{
+      room_id:    roomId,
+      class_id:   classId,
+      week_start: weekKey,
+    }]);
+
+    if (error) {
+      if (error.code === '23505') return toast('Esta turma ja esta alocada para outra sala nesta semana.', 'warning');
+      return toast('Erro: ' + error.message, 'error');
+    }
 
     const cls = allClasses.find(c => c.id === classId);
     if (cls?.teacher_id) {
       await NotificationsHelper.notify(
         cls.teacher_id,
         `Sala atribuida: ${roomName}`,
-        `Sua turma ${cls.courses?.name||''} foi alocada na sala ${roomName}.`,
+        `Sua turma ${cls.courses?.name || ''} foi alocada na sala ${roomName} para a semana de ${formatWeekRange(mapWeekOffset)}.`,
         'room'
       );
     }
@@ -535,12 +628,19 @@ const RoomsModule = (() => {
     await loadData();
   }
 
-  async function unassignRoom(classId) {
-    const { error } = await db.from('classes').update({ room_id: null, room_name: null }).eq('id', classId);
-    if (error) return toast('Erro.', 'error');
+  async function unassignSchedule(scheduleId) {
+    const confirmed = await confirmDialog('Remover esta turma da sala nesta semana?');
+    if (!confirmed) return;
+    const { error } = await db.from('room_schedules').delete().eq('id', scheduleId);
+    if (error) return toast('Erro ao remover.', 'error');
     toast('Turma removida da sala.', 'success');
     closeModal();
     await loadData();
+  }
+
+  // Mantido para compatibilidade (redirect para novo sistema)
+  async function unassignRoom(classId) {
+    return unassignSchedule(classId);
   }
 
   async function openChangeReqsAdmin() {
@@ -550,9 +650,10 @@ const RoomsModule = (() => {
 
   return {
     render, switchTab, prevWeek, nextWeek,
+    prevMapWeek, nextMapWeek, resetMapWeek,
     openBookingForm, saveBooking, cancelBooking,
     openChangeRequest, saveChangeRequest, resolveChangeReq,
-    openAssignRoom, assignRoom, unassignRoom,
+    openAssignRoom, assignRoom, unassignRoom, unassignSchedule,
     openChangeReqsAdmin,
   };
 })();
