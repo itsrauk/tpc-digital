@@ -228,7 +228,11 @@ const RoomsModule = (() => {
 
     const carusoRoom  = allRooms.find(r => r.name === 'Marcos Caruso');
     const weekBookings = bookings.filter(b => {
-      if (carusoRoom && b.room_id !== carusoRoom.id) return false;
+      // Filtra pela room_name (sempre gravada) OU pelo room_id — evita perder
+      // reservas salvas quando allRooms ainda não estava carregado (room_id null)
+      const isCaruso = b.room_name === 'Marcos Caruso'
+        || (carusoRoom && b.room_id === carusoRoom.id);
+      if (!isCaruso) return false;
       if (b.status === 'cancelled') return false;
       const bd = new Date(b.booking_date + 'T00:00:00');
       return bd >= days[0] && bd <= days[6];
@@ -455,8 +459,15 @@ const RoomsModule = (() => {
   async function cancelBooking(id) {
     const confirmed = await confirmDialog('Cancelar esta reserva?');
     if (!confirmed) return;
-    const { error } = await db.from('room_bookings').update({ status: 'cancelled' }).eq('id', id);
-    if (error) return toast('Erro ao cancelar.', 'error');
+    const { data, error } = await db.from('room_bookings')
+      .update({ status: 'cancelled' })
+      .eq('id', id)
+      .select('id');
+    if (error) return toast('Erro ao cancelar: ' + error.message, 'error');
+    if (!data?.length) {
+      toast('Sem permissao para cancelar. Execute fix_v12.sql no Supabase.', 'error');
+      return;
+    }
     toast('Reserva cancelada.', 'success');
     await loadData();
   }
@@ -700,7 +711,9 @@ const RoomsModule = (() => {
     // Reservas futuras (ou de hoje) da Caruso, não canceladas
     const upcoming = bookings
       .filter(b => {
-        if (carusoRoom && b.room_id !== carusoRoom.id) return false;
+        const isCaruso = b.room_name === 'Marcos Caruso'
+          || (carusoRoom && b.room_id === carusoRoom.id);
+        if (!isCaruso) return false;
         if (b.status === 'cancelled') return false;
         return b.booking_date >= todayStr;
       })
