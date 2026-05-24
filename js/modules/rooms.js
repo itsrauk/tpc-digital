@@ -781,25 +781,99 @@ const RoomsModule = (() => {
 <head>
 <meta charset="UTF-8">
 <title>Cronograma — Sala Marcos Caruso</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: Arial, Helvetica, sans-serif; color: #111; padding: 28px 36px; font-size: 13px; }
-.pdf-header { text-align: center; margin-bottom: 28px; }
-.main-title { font-size: 22px; font-weight: 900; letter-spacing: 3px; margin-bottom: 10px; }
-.room-badge { display: inline-block; background: #111; color: #fff; font-size: 15px; font-weight: bold; letter-spacing: 4px; padding: 7px 28px; margin-bottom: 10px; }
-.updated-label { font-size: 11px; color: #666; margin-top: 4px; }
-.section-block { margin-bottom: 20px; }
-.section-title { font-size: 13px; font-weight: bold; letter-spacing: 2px; border-bottom: 2.5px solid #111; padding-bottom: 5px; margin-bottom: 8px; margin-top: 22px; }
-.date-bar { background: #444; color: #fff; font-size: 12px; font-weight: bold; padding: 4px 10px; margin: 8px 0 4px; letter-spacing: 0.5px; }
-.booking-row { padding: 3px 12px; font-size: 12.5px; line-height: 1.7; }
-.pdf-footer { margin-top: 32px; border-top: 1px solid #ddd; padding-top: 10px; text-align: center; font-size: 11px; color: #666; }
-@media print { body { padding: 14px 20px; } .section-block { page-break-inside: avoid; } }
+body {
+  font-family: 'Roboto', Arial, sans-serif;
+  color: #111;
+  padding: 32px 40px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ── Cabeçalho ── */
+.pdf-header { text-align: center; margin-bottom: 32px; }
+.main-title {
+  font-family: 'Roboto', sans-serif;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.room-badge {
+  display: inline-block;
+  background: #111;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  padding: 7px 30px;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+.updated-label { font-size: 11px; color: #777; margin-top: 6px; }
+
+/* ── Seções por tipo (negrito, bem definido) ── */
+.section-block { margin-bottom: 24px; }
+.section-title {
+  font-family: 'Roboto', sans-serif;
+  font-size: 13px;
+  font-weight: 700;          /* negrito */
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  border-bottom: 2px solid #111;
+  padding-bottom: 6px;
+  margin-top: 28px;
+  margin-bottom: 10px;
+}
+
+/* ── Barra de data ── */
+.date-bar {
+  background: #333;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 12px;
+  margin: 10px 0 4px;
+  letter-spacing: 0.8px;
+}
+
+/* ── Linha de reserva ── */
+.booking-row {
+  padding: 4px 14px;
+  font-size: 12.5px;
+  line-height: 1.8;
+  border-bottom: 1px solid #eee;
+}
+.booking-row:last-child { border-bottom: none; }
+
+/* ── Rodapé ── */
+.pdf-footer {
+  margin-top: 40px;
+  border-top: 1px solid #ccc;
+  padding-top: 10px;
+  text-align: center;
+  font-size: 11px;
+  color: #666;
+  font-style: italic;
+}
+
+/* ── Impressão ── */
+@media print {
+  body { padding: 16px 22px; }
+  .section-block { page-break-inside: avoid; }
+  .section-title { margin-top: 20px; }
+}
 </style>
 </head>
 <body>
 <div class="pdf-header">
-  <div class="main-title">CRONOGRAMA DE RESERVAS</div>
-  <div><span class="room-badge">SALA MARCOS CARUSO</span></div>
+  <div class="main-title">Cronograma de Reservas</div>
+  <div><span class="room-badge">Sala Marcos Caruso</span></div>
   <div class="updated-label">Atualizado em ${updatedDate}</div>
 </div>
 ${sectionsHtml}
@@ -812,7 +886,8 @@ ${sectionsHtml}
     w.document.write(html);
     w.document.close();
     w.focus();
-    setTimeout(() => w.print(), 700);
+    // Aguarda Roboto carregar do Google Fonts antes de abrir o dialogo de impressao
+    w.document.fonts.ready.then(() => setTimeout(() => w.print(), 200)).catch(() => setTimeout(() => w.print(), 1400));
   }
 
   // ─── Export: Mapa de Salas (PDF) ─────────────────────────────────
