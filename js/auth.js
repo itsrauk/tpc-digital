@@ -33,12 +33,19 @@ const Auth = (() => {
     return session;
   }
 
-  function getUser()            { return currentUser; }
-  function getProfile()         { return currentProfile; }
-  function isAdmin()            { return currentProfile?.role === 'admin'; }
-  function isTeacher()          { return currentProfile?.role === 'teacher'; }
-  function isFinancial()        { return currentProfile?.role === 'financial'; }
-  function isAdminOrFinancial() { return isAdmin() || isFinancial(); }
+  function getUser()               { return currentUser; }
+  function getProfile()            { return currentProfile; }
+  function isAdmin()               { return currentProfile?.role === 'admin'; }
+  function isTeacher()             { return currentProfile?.role === 'teacher'; }
+  function isFinancial()           { return currentProfile?.role === 'financial'; }
+  function isSecretary()           { return currentProfile?.role === 'secretary'; }
+  function isAdminOrFinancial()    { return isAdmin() || isFinancial(); }
+  // Quem pode acessar o módulo Financeiro (admin, financeiro e secretaria)
+  function canAccessFinancial()    { return isAdmin() || isFinancial() || isSecretary(); }
+  // Quem pode ver os totais financeiros (apenas admin e financeiro)
+  function canSeeFinancialTotals() { return isAdmin() || isFinancial(); }
+  // Quem pode gerenciar alunos e turmas (admin, financeiro e secretaria)
+  function canManageStudents()     { return isAdmin() || isFinancial() || isSecretary(); }
 
   async function requireAuth() {
     const session = await getSession();
@@ -47,5 +54,7 @@ const Auth = (() => {
   }
 
   return { login, logout, getSession, getUser, getProfile,
-           isAdmin, isTeacher, isFinancial, isAdminOrFinancial, requireAuth };
+           isAdmin, isTeacher, isFinancial, isSecretary,
+           isAdminOrFinancial, canAccessFinancial, canSeeFinancialTotals,
+           canManageStudents, requireAuth };
 })();

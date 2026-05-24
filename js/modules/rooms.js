@@ -759,7 +759,7 @@ const RoomsModule = (() => {
           const sh    = b.start_time.slice(0, 5).replace(':', 'h');
           const eh    = b.end_time.slice(0, 5).replace(':', 'h');
           const piece = b.piece ? ` — ${b.piece}` : '';
-          datesHtml += `<div class="booking-row">&#9658; ${b.teacher_name || '—'}${piece} (Horário: ${sh} às ${eh})</div>`;
+          datesHtml += `<div class="booking-row">&#9658; <strong>${b.teacher_name || '—'}</strong>${piece} (Horário: ${sh} às ${eh})</div>`;
         }
       }
 

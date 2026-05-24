@@ -18,9 +18,14 @@ const Router = (() => {
     if (!routes[view]) return;
 
     // Restrições de acesso por perfil
-    if ((view === 'settings' || view === 'history') && !Auth.isAdmin()) return;
-    if (view === 'financial' && !Auth.isAdminOrFinancial()) return;
-    if (view === 'teachers' && !Auth.isAdmin()) return;
+    // Admin: tudo
+    // Financeiro: tudo exceto configurações
+    // Secretaria: dashboard, alunos, turmas, salas, reuniões, financeiro (sem totais)
+    // Professor: dashboard, salas, reuniões
+    if (view === 'settings' && !Auth.isAdmin()) return;
+    if ((view === 'history' || view === 'teachers') && !Auth.isAdminOrFinancial()) return;
+    if ((view === 'students' || view === 'courses') && !Auth.canManageStudents()) return;
+    if (view === 'financial' && !Auth.canAccessFinancial()) return;
 
     // Fecha sidebar mobile ao navegar
     document.body.classList.remove('sidebar-open');
@@ -91,24 +96,39 @@ document.addEventListener('DOMContentLoaded', async () => {
   const ok = await Auth.requireAuth();
   if (!ok) return;
 
-  const profile     = Auth.getProfile();
-  const isAdmin     = Auth.isAdmin();
-  const isFinancial = Auth.isFinancial();
+  const profile      = Auth.getProfile();
+  const isAdmin      = Auth.isAdmin();
+  const isFinancial  = Auth.isFinancial();
+  const isSecretary  = Auth.isSecretary();
+  const canManage    = Auth.canManageStudents();    // admin + financial + secretary
+  const canSeeAll    = Auth.isAdminOrFinancial();   // admin + financial
+  const canFinancial = Auth.canAccessFinancial();   // admin + financial + secretary
 
   document.getElementById('user-name').textContent = profile?.name || 'Usuário';
   document.getElementById('user-role').textContent =
-    isAdmin ? 'Administrador' : isFinancial ? 'Financeiro' : 'Professor';
+    isAdmin     ? 'Administrador' :
+    isFinancial ? 'Financeiro'    :
+    isSecretary ? 'Secretaria'    : 'Professor';
 
   // ─── Visibilidade do menu por perfil ──────────────────────
-  // Apenas admins veem: Professores, Histórico, Configurações
-  ['nav-teachers', 'nav-history', 'nav-settings'].forEach(id => {
+  // admin + financial + secretary: Alunos, Turmas, Financeiro
+  ['nav-students', 'nav-courses', 'nav-financial'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.style.display = isAdmin ? 'flex' : 'none';
+    if (el) el.style.display = canManage ? 'flex' : 'none';
   });
 
-  // Financeiro: visível para admin e role financial
-  const navFin = document.getElementById('nav-financial');
-  if (navFin) navFin.style.display = (isAdmin || isFinancial) ? 'flex' : 'none';
+  // admin + financial: Professores, Histórico
+  ['nav-teachers', 'nav-history'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = canSeeAll ? 'flex' : 'none';
+  });
+
+  // Somente admin: Configurações
+  const navSettings = document.getElementById('nav-settings');
+  if (navSettings) navSettings.style.display = isAdmin ? 'flex' : 'none';
+
+  // Salas e Reuniões: sempre visíveis (IDs já existem em app.html)
+  // nav-rooms e nav-meetings não precisam de hide/show (sempre flex)
 
   // ─── Modal ────────────────────────────────────────────────
   document.getElementById('modal-overlay').addEventListener('click', e => {

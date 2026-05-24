@@ -1,12 +1,15 @@
 const FinancialModule = (() => {
 
-  let allPayments = [];
+  let allPayments  = [];
   let currentFilter = 'due_this_month';
 
+  const METHOD_LABELS = { pix: 'PIX', cash: 'Dinheiro', debit: 'Débito' };
+  const METHOD_COLORS = { pix: '#22c55e', cash: '#3b82f6', debit: '#a855f7' };
+
   async function render() {
-    if (!Auth.isAdmin()) {
+    if (!Auth.canAccessFinancial()) {
       document.getElementById('view-content').innerHTML =
-        `<div class="error-state">Acesso restrito ao administrador.</div>`;
+        `<div class="error-state">Acesso restrito.</div>`;
       return;
     }
     document.getElementById('view-content').innerHTML =
@@ -34,6 +37,7 @@ const FinancialModule = (() => {
     const now = new Date();
     const thisMonth = now.getMonth();
     const thisYear  = now.getFullYear();
+    const canTotals = Auth.canSeeFinancialTotals();
 
     // Valor efetivo: desconto perdido se não pago após dia 12 do mês de vencimento
     function effectiveAmt(p) {
@@ -60,8 +64,8 @@ const FinancialModule = (() => {
     const pending     = monthPayments.filter(p => p.status !== 'paid').reduce((s, p) => s + effectiveAmt(p), 0);
     const defaultRate = forecast > 0 ? ((pending / forecast) * 100).toFixed(1) : '0.0';
 
-    // Atualizar status de pagamentos vencidos
-    const today = new Date(); today.setHours(0,0,0,0);
+    // Marcar vencidos
+    const today = new Date(); today.setHours(0, 0, 0, 0);
     const overdueIds = allPayments
       .filter(p => p.status === 'pending' && new Date(p.due_date + 'T00:00:00') < today)
       .map(p => p.id);
@@ -70,13 +74,14 @@ const FinancialModule = (() => {
       <div class="view-header">
         <h1 class="view-title">Financeiro</h1>
         <div class="view-actions">
-          <button class="btn btn-secondary" onclick="FinancialModule.exportReport()">
+          ${canTotals ? `<button class="btn btn-secondary" onclick="FinancialModule.exportReport()">
             Exportar Relatorio
-          </button>
+          </button>` : ''}
         </div>
       </div>
 
       <div class="cards-grid">
+        ${canTotals ? `
         <div class="card stat-card accent">
           <div class="stat-label">Receita Realizada</div>
           <div class="stat-value">${formatCurrency(realized)}</div>
@@ -94,9 +99,11 @@ const FinancialModule = (() => {
         </div>
         <div class="card stat-card">
           <div class="stat-label">Total no Sistema</div>
-          <div class="stat-value">${formatCurrency(allPayments.reduce((s,p) => s + Number(p.amount), 0))}</div>
+          <div class="stat-value">${formatCurrency(allPayments.reduce((s, p) => s + Number(p.amount), 0))}</div>
           <div class="stat-desc">todos os lancamentos</div>
         </div>
+        ` : ''}
+        ${renderPaymentMethodChart()}
       </div>
 
       <div class="section-header mt-6">
@@ -123,10 +130,60 @@ const FinancialModule = (() => {
     );
   }
 
+  // ─── Gráfico de formas de pagamento ──────────────────────────────
+  function renderPaymentMethodChart() {
+    const now = new Date();
+    const paidThisMonth = allPayments.filter(p => {
+      if (p.status !== 'paid' || !p.paid_date) return false;
+      const d = new Date(p.paid_date + 'T00:00:00');
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    });
+
+    const total = paidThisMonth.length;
+    const count = { pix: 0, cash: 0, debit: 0 };
+    paidThisMonth.forEach(p => {
+      if (p.payment_method === 'pix')   count.pix++;
+      else if (p.payment_method === 'cash')  count.cash++;
+      else if (p.payment_method === 'debit') count.debit++;
+    });
+    const withMethod = count.pix + count.cash + count.debit;
+
+    if (!total) {
+      return `<div class="card stat-card">
+        <div class="stat-label">Formas de Pagamento</div>
+        <div class="stat-desc" style="padding:8px 0">Nenhum pagamento este mês.</div>
+      </div>`;
+    }
+
+    const bars = Object.entries(count).map(([key, cnt]) => {
+      const pct = withMethod > 0 ? Math.round(cnt / withMethod * 100) : 0;
+      return `
+        <div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
+            <span style="display:flex;align-items:center;gap:5px">
+              <span style="width:8px;height:8px;border-radius:50%;background:${METHOD_COLORS[key]};display:inline-block;flex-shrink:0"></span>
+              ${METHOD_LABELS[key]}
+            </span>
+            <span><strong>${pct}%</strong> <span style="color:var(--text-secondary)">(${cnt})</span></span>
+          </div>
+          <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:${METHOD_COLORS[key]};border-radius:3px"></div>
+          </div>
+        </div>`;
+    }).join('');
+
+    const semRegistro = total - withMethod;
+    return `<div class="card stat-card">
+      <div class="stat-label">Formas de Pagamento</div>
+      <div style="margin:10px 0 4px">${bars}</div>
+      ${semRegistro > 0 ? `<div style="font-size:10px;color:var(--text-secondary);margin-bottom:4px">${semRegistro} sem forma registrada</div>` : ''}
+      <div class="stat-desc">${total} pagamentos este mês</div>
+    </div>`;
+  }
+
   function renderPaymentsTable(overdueIds = [], search = '') {
     let payments = [...allPayments];
 
-    // Marcar vencidos no display
     payments = payments.map(p => {
       if (overdueIds.includes(p.id)) return { ...p, status: 'overdue' };
       return p;
@@ -171,11 +228,14 @@ const FinancialModule = (() => {
               const due          = new Date(p.due_date + 'T00:00:00');
               const today        = new Date(); today.setHours(0, 0, 0, 0);
               const pastDay12    = today.getDate() > 12 && today >= new Date(due.getFullYear(), due.getMonth(), 1);
-              // Se não pago e já passou dia 12 do mês de vencimento: cobra valor integral
               const effectiveAmt = (p.status !== 'paid' && pastDay12 && discountAmt > 0)
                 ? Number(p.amount) + discountAmt
                 : Number(p.amount);
               const hasLostDiscount = p.status !== 'paid' && pastDay12 && discountAmt > 0;
+
+              const methodBadge = p.payment_method
+                ? `<div style="margin-top:3px"><span style="font-size:10px;padding:1px 7px;border-radius:3px;background:${METHOD_COLORS[p.payment_method]}22;color:${METHOD_COLORS[p.payment_method]};font-weight:700;border:1px solid ${METHOD_COLORS[p.payment_method]}44">${METHOD_LABELS[p.payment_method]}</span></div>`
+                : '';
 
               return `<tr>
                 <td>${escapeHtml(p.students?.name || '—')}</td>
@@ -194,7 +254,10 @@ const FinancialModule = (() => {
                 <td><span class="badge badge-${p.status === 'paid' ? 'success' : p.status === 'overdue' ? 'danger' : 'warning'}">
                   ${STATUS_LABELS[p.status] || p.status}
                 </span></td>
-                <td>${p.paid_date ? formatDate(p.paid_date) : '—'}</td>
+                <td>
+                  ${p.paid_date ? formatDate(p.paid_date) : '—'}
+                  ${methodBadge}
+                </td>
                 <td class="text-secondary">${escapeHtml(p.observations || '—')}</td>
                 <td class="actions-cell">
                   ${p.status !== 'paid' ? `
@@ -222,20 +285,82 @@ const FinancialModule = (() => {
     renderPaymentsTable();
   }
 
+  // ─── Registrar pagamento (modal com forma de pagamento) ───────────
   async function markPaid(id, effectiveAmount) {
-    const today = new Date().toISOString().split('T')[0];
-    // Grava o valor efetivamente cobrado (com ou sem desconto conforme dia 12)
-    const updatePayload = { status: 'paid', paid_date: today };
-    if (effectiveAmount !== undefined) updatePayload.amount = effectiveAmount;
+    const p = allPayments.find(x => x.id === id);
+    const studentName = p?.students?.name || '—';
 
-    const { error } = await db.from('payments').update(updatePayload).eq('id', id);
+    openModal('Registrar Pagamento', `
+      <div style="margin-bottom:12px">
+        <div class="text-secondary" style="font-size:12px">Aluno</div>
+        <div style="font-weight:600">${escapeHtml(studentName)}</div>
+      </div>
+      <form id="markpaid-form" onsubmit="FinancialModule.confirmMarkPaid(event, '${id}')">
+        <div class="form-grid">
+          <div class="form-group span-3">
+            <label>Valor Recebido (R$) *</label>
+            <input type="number" name="paid_amount" class="input" step="0.01" min="0"
+              value="${effectiveAmount.toFixed(2)}" required>
+          </div>
+          <div class="form-group span-3">
+            <label>Forma de Pagamento *</label>
+            <div style="display:flex;gap:10px;margin-top:8px">
+              ${['pix', 'cash', 'debit'].map(m => `
+                <button type="button" class="method-btn" data-method="${m}"
+                  onclick="FinancialModule.selectMethod(this)"
+                  style="flex:1;padding:10px 0;border:2px solid var(--border);border-radius:8px;
+                         background:transparent;cursor:pointer;font-weight:700;font-size:13px;
+                         color:var(--text-secondary);transition:.15s">
+                  ${METHOD_LABELS[m]}
+                </button>`).join('')}
+            </div>
+            <input type="hidden" id="selected-method" name="payment_method">
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Confirmar Pagamento</button>
+        </div>
+      </form>
+    `);
+  }
+
+  function selectMethod(btn) {
+    document.querySelectorAll('.method-btn').forEach(b => {
+      b.style.borderColor = 'var(--border)';
+      b.style.background  = 'transparent';
+      b.style.color       = 'var(--text-secondary)';
+    });
+    btn.style.borderColor = METHOD_COLORS[btn.dataset.method] || 'var(--accent)';
+    btn.style.background  = (METHOD_COLORS[btn.dataset.method] || '#d4af37') + '18';
+    btn.style.color       = METHOD_COLORS[btn.dataset.method] || 'var(--accent)';
+    document.getElementById('selected-method').value = btn.dataset.method;
+  }
+
+  async function confirmMarkPaid(event, id) {
+    event.preventDefault();
+    const fd     = new FormData(event.target);
+    const method = fd.get('payment_method');
+    if (!method) { toast('Selecione a forma de pagamento.', 'warning'); return; }
+
+    const paidAmount = parseFloat(fd.get('paid_amount'));
+    const today      = new Date().toISOString().split('T')[0];
+
+    const { error } = await db.from('payments').update({
+      status:         'paid',
+      paid_date:      today,
+      amount:         paidAmount,
+      payment_method: method,
+    }).eq('id', id);
+
     if (error) return toast('Erro ao atualizar pagamento.', 'error');
 
     const p = allPayments.find(x => x.id === id);
     AuditLog.log('payment_paid', 'payment', id, p?.students?.name,
-      `Pagamento confirmado: ${p?.students?.name || '—'} — parcela ${p?.installment_number || '?'} de ${formatCurrency(effectiveAmount || p?.amount || 0)}`);
+      `Pagamento confirmado: ${p?.students?.name || '—'} — parcela ${p?.installment_number || '?'} — ${METHOD_LABELS[method]} — ${formatCurrency(paidAmount)}`);
 
     toast('Pagamento registrado.', 'success');
+    closeModal();
     await loadFinancial();
   }
 
@@ -244,7 +369,7 @@ const FinancialModule = (() => {
     if (!confirmed) return;
     const p = allPayments.find(x => x.id === id);
     const { error } = await db.from('payments')
-      .update({ status: 'pending', paid_date: null })
+      .update({ status: 'pending', paid_date: null, payment_method: null })
       .eq('id', id);
     if (error) return toast('Erro ao estornar.', 'error');
 
@@ -302,6 +427,15 @@ const FinancialModule = (() => {
             <input type="date" name="paid_date" class="input"
               value="${toInputDate(payment.paid_date)}">
           </div>
+          <div class="form-group">
+            <label>Forma de Pagamento</label>
+            <select name="payment_method" class="input">
+              <option value="">— Nao registrada —</option>
+              <option value="pix"   ${payment.payment_method === 'pix'   ? 'selected' : ''}>PIX</option>
+              <option value="cash"  ${payment.payment_method === 'cash'  ? 'selected' : ''}>Dinheiro</option>
+              <option value="debit" ${payment.payment_method === 'debit' ? 'selected' : ''}>Debito</option>
+            </select>
+          </div>
           <div class="form-group span-3">
             <label>Observacoes</label>
             <textarea name="observations" class="input textarea" rows="3"
@@ -318,7 +452,7 @@ const FinancialModule = (() => {
 
   async function savePayment(event, id) {
     event.preventDefault();
-    const fd = new FormData(event.target);
+    const fd   = new FormData(event.target);
     const data = Object.fromEntries(fd.entries());
 
     const { error } = await db.from('payments').update({
@@ -327,6 +461,7 @@ const FinancialModule = (() => {
       due_date:        data.due_date,
       status:          data.status,
       paid_date:       data.paid_date || null,
+      payment_method:  data.payment_method || null,
       observations:    data.observations || null,
     }).eq('id', id);
 
@@ -348,7 +483,6 @@ const FinancialModule = (() => {
     const mL = 14, mR = W - 14;
     const now = new Date();
 
-    // Aplicar filtro ativo
     const FILTER_LABELS = {
       due_this_month: 'Vencem esse Mes',
       pending: 'Pendentes',
@@ -372,7 +506,6 @@ const FinancialModule = (() => {
     }
     const filterLabel = FILTER_LABELS[currentFilter] || 'Todos';
 
-    // ─── Cabeçalho ────────────────────────────────────────────
     doc.setFillColor(30, 30, 30);
     doc.rect(0, 0, W, 18, 'F');
     doc.setTextColor(255, 255, 255);
@@ -384,19 +517,16 @@ const FinancialModule = (() => {
       mR, 8, { align: 'right' }
     );
 
-    // ─── Indicadores rápidos ──────────────────────────────────
     const paid    = paymentsToExport.filter(p => p.status === 'paid').reduce((s, p) => s + Number(p.amount), 0);
     const pending = paymentsToExport.filter(p => p.status !== 'paid').reduce((s, p) => s + Number(p.amount), 0);
     doc.setFontSize(8); doc.setTextColor(200, 200, 200);
     doc.text(`Total pago: ${formatCurrency(paid)}`, mL, 14);
     doc.text(`Total em aberto: ${formatCurrency(pending)}`, mL + 70, 14);
 
-    // ─── Tabela ────────────────────────────────────────────────
-    const headers = ['Aluno', 'RA', 'Curso', 'Parcela', 'Valor', 'Vencimento', 'Situacao', 'Pagamento', 'Observacoes'];
-    const colX    = [mL, 60, 90, 130, 148, 168, 190, 214, 238];
+    const headers = ['Aluno', 'RA', 'Curso', 'Parcela', 'Valor', 'Vencimento', 'Situacao', 'Pagamento', 'Forma', 'Obs'];
+    const colX    = [mL, 58, 88, 126, 144, 162, 183, 206, 226, 248];
     let y = 26;
 
-    // Cabeçalho da tabela
     doc.setFillColor(245, 245, 245);
     doc.rect(mL - 2, y - 4, mR - mL + 4, 7, 'F');
     doc.setTextColor(50, 50, 50);
@@ -407,11 +537,9 @@ const FinancialModule = (() => {
     doc.line(mL - 2, y, mR + 2, y);
     y += 4;
 
-    // Linhas de dados
     let rowBg = false;
     paymentsToExport.forEach(p => {
       if (y > H - 14) {
-        // Nova página
         doc.addPage();
         doc.setFillColor(30, 30, 30);
         doc.rect(0, 0, W, 12, 'F');
@@ -439,19 +567,17 @@ const FinancialModule = (() => {
 
       doc.setFontSize(7.5); doc.setFont('helvetica', 'normal');
       doc.setTextColor(20, 20, 20);
-      doc.text((p.students?.name || '—').substring(0, 22), colX[0], y);
+      doc.text((p.students?.name || '—').substring(0, 20), colX[0], y);
       doc.text(p.students?.ra || '—', colX[1], y);
-      doc.text((p.enrollments?.piece_course || '—').substring(0, 16), colX[2], y);
+      doc.text((p.enrollments?.piece_course || '—').substring(0, 15), colX[2], y);
       doc.text(`${p.installment_number || '—'} / ${p.enrollments?.payment_installments || '—'}`, colX[3], y);
 
-      // Valor em negrito
       doc.setFont('helvetica', 'bold');
       doc.text(formatCurrency(p.amount), colX[4], y);
       doc.setFont('helvetica', 'normal');
 
       doc.text(formatDate(p.due_date), colX[5], y);
 
-      // Status colorido
       const statusColor = { paid: [39, 174, 96], pending: [200, 140, 20], overdue: [192, 57, 43] };
       const sc = statusColor[p.status] || [100, 100, 100];
       doc.setTextColor(...sc);
@@ -461,14 +587,14 @@ const FinancialModule = (() => {
       doc.setTextColor(20, 20, 20);
 
       doc.text(p.paid_date ? formatDate(p.paid_date) : '—', colX[7], y);
-      doc.text((p.observations || '').substring(0, 20), colX[8], y);
+      doc.text(METHOD_LABELS[p.payment_method] || '—', colX[8], y);
+      doc.text((p.observations || '').substring(0, 16), colX[9], y);
 
       y += 6.5;
       doc.setDrawColor(230, 230, 230);
       doc.line(mL - 2, y - 2.5, mR + 2, y - 2.5);
     });
 
-    // ─── Rodapé ────────────────────────────────────────────────
     const totalPages = doc.internal.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i);
@@ -482,8 +608,12 @@ const FinancialModule = (() => {
       doc.text('Documento confidencial — uso interno', mR, H - 4, { align: 'right' });
     }
 
-    doc.save(`relatorio-financeiro-tpc-${filterLabel.toLowerCase().replace(/ /g,'-')}-${now.toISOString().split('T')[0]}.pdf`);
+    doc.save(`relatorio-financeiro-tpc-${filterLabel.toLowerCase().replace(/ /g, '-')}-${now.toISOString().split('T')[0]}.pdf`);
   }
 
-  return { render, filter, markPaid, markPending, openEdit, savePayment, exportReport };
+  return {
+    render, filter,
+    markPaid, selectMethod, confirmMarkPaid,
+    markPending, openEdit, savePayment, exportReport,
+  };
 })();
