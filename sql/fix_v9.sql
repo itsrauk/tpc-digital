@@ -5,7 +5,37 @@
 --
 -- Execute no Supabase SQL Editor.
 
--- ─── 1. Função seed_sandbox() corrigida ─────────────────────────
+-- ─── 0. Colunas is_sandbox (podem ter revertido junto com fix_v8) ─
+ALTER TABLE students    ADD COLUMN IF NOT EXISTS is_sandbox BOOLEAN DEFAULT false;
+ALTER TABLE courses     ADD COLUMN IF NOT EXISTS is_sandbox BOOLEAN DEFAULT false;
+ALTER TABLE classes     ADD COLUMN IF NOT EXISTS is_sandbox BOOLEAN DEFAULT false;
+ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS is_sandbox BOOLEAN DEFAULT false;
+
+-- ─── 1. Tabela attendance (se ainda não existir) ─────────────────
+CREATE TABLE IF NOT EXISTS attendance (
+  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at       TIMESTAMPTZ DEFAULT now(),
+  class_id         UUID        REFERENCES classes(id),
+  student_id       UUID        REFERENCES students(id),
+  enrollment_id    UUID        REFERENCES enrollments(id),
+  date             DATE        NOT NULL,
+  status           TEXT        CHECK (status IN ('present','absent','late','justified')),
+  notes            TEXT,
+  recorded_by      UUID,
+  recorded_by_name TEXT
+);
+
+ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "att_select" ON attendance;
+DROP POLICY IF EXISTS "att_all"    ON attendance;
+CREATE POLICY "att_select" ON attendance FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "att_all"    ON attendance FOR ALL   WITH CHECK (auth.role() = 'authenticated');
+
+DROP INDEX IF EXISTS attendance_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS attendance_uniq ON attendance (enrollment_id, date);
+
+-- ─── 2. Função seed_sandbox() corrigida ─────────────────────────
 CREATE OR REPLACE FUNCTION seed_sandbox() RETURNS TEXT AS $$
 DECLARE
   v_teacher1    UUID;
