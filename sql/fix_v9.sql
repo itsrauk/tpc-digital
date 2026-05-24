@@ -1,44 +1,11 @@
--- ─── fix_v8.sql ─────────────────────────────────────────────────
--- Execute no Supabase SQL Editor
--- O que este script faz:
---   1. Cria/garante a tabela attendance com RLS
---   2. Adiciona coluna is_sandbox nas tabelas principais
---   3. Cria função seed_sandbox()  — semeador de dados de teste
---   4. Cria função reset_sandbox() — apaga tudo [TESTE] e re-semeia
---   5. Executa seed_sandbox() imediatamente
+-- ─── fix_v9.sql ─────────────────────────────────────────────────
+-- Corrige seed_sandbox() e reset_sandbox() (referência inválida a
+-- room_bookings.class_id que não existe) e recarrega o schema cache
+-- do PostgREST para que db.rpc('seed_sandbox') funcione no app.
+--
+-- Execute no Supabase SQL Editor.
 
--- ─── 1. Tabela de frequência ─────────────────────────────────────
-CREATE TABLE IF NOT EXISTS attendance (
-  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at       TIMESTAMPTZ DEFAULT now(),
-  class_id         UUID        REFERENCES classes(id),
-  student_id       UUID        REFERENCES students(id),
-  enrollment_id    UUID        REFERENCES enrollments(id),
-  date             DATE        NOT NULL,
-  status           TEXT        CHECK (status IN ('present','absent','late','justified')),
-  notes            TEXT,
-  recorded_by      UUID,
-  recorded_by_name TEXT
-);
-
-ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "att_select" ON attendance;
-DROP POLICY IF EXISTS "att_all"    ON attendance;
-CREATE POLICY "att_select" ON attendance FOR SELECT USING (auth.role() = 'authenticated');
-CREATE POLICY "att_all"    ON attendance FOR ALL   WITH CHECK (auth.role() = 'authenticated');
-
--- Unique: uma frequência por matrícula por data
-DROP INDEX IF EXISTS attendance_uniq;
-CREATE UNIQUE INDEX IF NOT EXISTS attendance_uniq ON attendance (enrollment_id, date);
-
--- ─── 2. Coluna is_sandbox ─────────────────────────────────────────
-ALTER TABLE students    ADD COLUMN IF NOT EXISTS is_sandbox BOOLEAN DEFAULT false;
-ALTER TABLE courses     ADD COLUMN IF NOT EXISTS is_sandbox BOOLEAN DEFAULT false;
-ALTER TABLE classes     ADD COLUMN IF NOT EXISTS is_sandbox BOOLEAN DEFAULT false;
-ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS is_sandbox BOOLEAN DEFAULT false;
-
--- ─── 3. Função seed_sandbox() ────────────────────────────────────
+-- ─── 1. Função seed_sandbox() corrigida ─────────────────────────
 CREATE OR REPLACE FUNCTION seed_sandbox() RETURNS TEXT AS $$
 DECLARE
   v_teacher1    UUID;
@@ -56,8 +23,7 @@ DECLARE
   v_room_mp     UUID;
   v_room_stan   UUID;
 BEGIN
-  -- ── Limpeza prévia de sandbox ──────────────────────────────────
-  -- (room_bookings não tem class_id — seed não cria reservas, apenas atribui sala à turma)
+  -- ── Limpeza prévia (room_bookings não tem class_id — seed não cria reservas)
   DELETE FROM attendance           WHERE class_id IN (v_class1, v_class2);
   DELETE FROM room_change_requests WHERE class_id IN (v_class1, v_class2);
   DELETE FROM enrollments  WHERE is_sandbox = true;
@@ -106,30 +72,30 @@ BEGIN
 
   -- ── Alunos fictícios ─────────────────────────────────────────
   INSERT INTO students (id, ra, name, status, is_sandbox) VALUES
-    (v_s1, '2026TS001', '[TESTE] Ana Silva',        'active', true),
-    (v_s2, '2026TS002', '[TESTE] Bruno Oliveira',   'active', true),
-    (v_s3, '2026TS003', '[TESTE] Carla Mendes',     'active', true),
-    (v_s4, '2026TS004', '[TESTE] Diego Ferreira',   'active', true),
-    (v_s5, '2026TS005', '[TESTE] Eva Costa',        'active', true),
-    (v_s6, '2026TS006', '[TESTE] Felipe Santos',    'active', true)
+    (v_s1, '2026TS001', '[TESTE] Ana Silva',      'active', true),
+    (v_s2, '2026TS002', '[TESTE] Bruno Oliveira', 'active', true),
+    (v_s3, '2026TS003', '[TESTE] Carla Mendes',   'active', true),
+    (v_s4, '2026TS004', '[TESTE] Diego Ferreira', 'active', true),
+    (v_s5, '2026TS005', '[TESTE] Eva Costa',      'active', true),
+    (v_s6, '2026TS006', '[TESTE] Felipe Santos',  'active', true)
   ON CONFLICT (id) DO NOTHING;
 
   -- ── Matrículas ────────────────────────────────────────────────
   INSERT INTO enrollments (student_id, class_id, piece_course, status,
                            total_value, payment_installments, is_sandbox) VALUES
-    (v_s1, v_class1, '[TESTE] Basico de Teatro',    'active', 1200, 12, true),
-    (v_s2, v_class1, '[TESTE] Basico de Teatro',    'active', 1200, 12, true),
-    (v_s3, v_class1, '[TESTE] Basico de Teatro',    'active', 1200, 12, true),
-    (v_s4, v_class2, '[TESTE] Peca de Verao 2026',  'active',  800,  8, true),
-    (v_s5, v_class2, '[TESTE] Peca de Verao 2026',  'active',  800,  8, true),
-    (v_s6, v_class2, '[TESTE] Peca de Verao 2026',  'active',  800,  8, true)
+    (v_s1, v_class1, '[TESTE] Basico de Teatro',   'active', 1200, 12, true),
+    (v_s2, v_class1, '[TESTE] Basico de Teatro',   'active', 1200, 12, true),
+    (v_s3, v_class1, '[TESTE] Basico de Teatro',   'active', 1200, 12, true),
+    (v_s4, v_class2, '[TESTE] Peca de Verao 2026', 'active',  800,  8, true),
+    (v_s5, v_class2, '[TESTE] Peca de Verao 2026', 'active',  800,  8, true),
+    (v_s6, v_class2, '[TESTE] Peca de Verao 2026', 'active',  800,  8, true)
   ON CONFLICT DO NOTHING;
 
   RETURN 'Sandbox criado: 2 turmas, 6 alunos, salas atribuidas.';
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- ─── 4. Função reset_sandbox() ───────────────────────────────────
+-- ─── 2. Função reset_sandbox() corrigida ────────────────────────
 CREATE OR REPLACE FUNCTION reset_sandbox() RETURNS TEXT AS $$
 DECLARE
   sandbox_class_ids UUID[];
@@ -153,10 +119,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- ─── 5. Executar agora ───────────────────────────────────────────
+-- ─── 3. Recarregar schema cache do PostgREST ────────────────────
+NOTIFY pgrst, 'reload schema';
+
+-- ─── 4. Semear agora ────────────────────────────────────────────
 SELECT seed_sandbox();
 
--- ─── Verificação ─────────────────────────────────────────────────
+-- ─── 5. Verificação ─────────────────────────────────────────────
 SELECT 'students'    AS tabela, COUNT(*) FILTER (WHERE is_sandbox) AS sandbox FROM students
 UNION ALL
 SELECT 'classes',      COUNT(*) FILTER (WHERE is_sandbox) FROM classes
