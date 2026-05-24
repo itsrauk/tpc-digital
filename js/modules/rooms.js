@@ -123,6 +123,10 @@ const RoomsModule = (() => {
     // Agendamentos da semana selecionada
     const weekSched  = roomSchedules.filter(s => s.week_start === weekKey);
 
+    // Sala atual do professor logado nesta semana (para o botão Solicitar Troca)
+    const myScheduleThisWeek = weekSched.find(s => s.classes?.teacher_id === profile?.id);
+    const myCurrentRoomId    = myScheduleThisWeek?.room_id || null;
+
     const rooms = allRooms.length
       ? [...allRooms].sort((a, b) => (SIZE_ORDER[a.size] || 9) - (SIZE_ORDER[b.size] || 9) || a.sort_order - b.sort_order)
       : ROOM_ORDER.map(name => ({ name, size: 'medium' }));
@@ -182,7 +186,9 @@ const RoomsModule = (() => {
                        onclick="RoomsModule.openAssignRoom('${room.id}','${escapeHtml(room.name)}')">
                        + Atribuir Turma
                      </button>`
-                  : !isMyRoom
+                  : // Professor: mostra "Solicitar Troca" apenas se ele TEM sala esta semana
+                    // e esta sala é diferente da dele (= sala desejada)
+                    (myCurrentRoomId && !isMyRoom)
                     ? `<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px"
                          onclick="RoomsModule.openChangeRequest('${room.id}','${escapeHtml(room.name)}')">
                          Solicitar Troca
@@ -445,29 +451,39 @@ const RoomsModule = (() => {
   }
 
   // ─── Solicitação de Troca ──────────────────────────────────────
-  async function openChangeRequest(fromRoomId, fromRoomName) {
-    const profile    = Auth.getProfile();
-    const myClass    = allClasses.find(c => c.teacher_id === profile?.id);
-    const otherRooms = allRooms.filter(r => r.id !== fromRoomId);
+  // toRoomId/toRoomName = sala que o professor CLICOU (= sala desejada)
+  async function openChangeRequest(toRoomId, toRoomName) {
+    const profile  = Auth.getProfile();
+    const weekKey  = getWeekMonday(mapWeekOffset);
+
+    // Sala atual do professor nesta semana
+    const mySchedule    = roomSchedules.find(s =>
+      s.classes?.teacher_id === profile?.id && s.week_start === weekKey
+    );
+    const myCurrentRoom = allRooms.find(r => r.id === mySchedule?.room_id);
+    const myClass       = allClasses.find(c => c.teacher_id === profile?.id);
+
+    if (!myCurrentRoom) {
+      toast('Voce nao tem sala atribuida nesta semana para solicitar troca.', 'warning');
+      return;
+    }
 
     openModal('Solicitar Troca de Sala', `
       <form id="change-req-form" onsubmit="RoomsModule.saveChangeRequest(event)">
-        <input type="hidden" name="current_room" value="${escapeHtml(fromRoomName)}">
+        <input type="hidden" name="current_room"   value="${escapeHtml(myCurrentRoom.name)}">
+        <input type="hidden" name="requested_room" value="${escapeHtml(toRoomName)}">
         <div class="form-grid">
           <div class="form-group span-2">
-            <label>Sala Atual</label>
-            <input type="text" class="input" value="${escapeHtml(fromRoomName)}" readonly>
+            <label>Sala Atual (sua sala)</label>
+            <input type="text" class="input" value="${escapeHtml(myCurrentRoom.name)}" readonly>
+          </div>
+          <div class="form-group span-2">
+            <label>Sala Desejada</label>
+            <input type="text" class="input" value="${escapeHtml(toRoomName)}" readonly>
           </div>
           <div class="form-group span-2">
             <label>Turma</label>
-            <input type="text" class="input" value="${escapeHtml(myClass?.courses?.name || '')}" readonly>
-          </div>
-          <div class="form-group span-2">
-            <label>Sala Desejada *</label>
-            <select name="requested_room" class="input" required>
-              <option value="">Selecione...</option>
-              ${otherRooms.map(r => `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)} (${ROOM_SIZE[r.size] || r.size})</option>`).join('')}
-            </select>
+            <input type="text" class="input" value="${escapeHtml(myClass?.courses?.name || '—')}" readonly>
           </div>
           <div class="form-group span-2">
             <label>Motivo *</label>
@@ -600,7 +616,25 @@ const RoomsModule = (() => {
     const classId = document.getElementById('assign-class-select')?.value;
     if (!classId) return toast('Selecione uma turma.', 'warning');
 
-    const weekKey = getWeekMonday(mapWeekOffset);
+    const weekKey    = getWeekMonday(mapWeekOffset);
+    const cls        = allClasses.find(c => c.id === classId);
+    const teacherId  = cls?.teacher_id;
+
+    // Verificar se o professor desta turma já está em outra sala nesta semana
+    if (teacherId) {
+      const conflict = roomSchedules.find(s =>
+        s.week_start === weekKey &&
+        s.room_id !== roomId &&
+        s.classes?.teacher_id === teacherId
+      );
+      if (conflict) {
+        const conflictRoomName = allRooms.find(r => r.id === conflict.room_id)?.name || 'outra sala';
+        const ok = await confirmDialog(
+          `Atencao: ${cls?.profiles?.name || 'Este professor'} ja esta alocado em "${conflictRoomName}" nesta semana.\n\nDeseja atribuir mesmo assim?`
+        );
+        if (!ok) return;
+      }
+    }
 
     const { error } = await db.from('room_schedules').insert([{
       room_id:    roomId,
