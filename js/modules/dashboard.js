@@ -227,21 +227,41 @@ const DashboardModule = (() => {
     if (!container) return;
     container.innerHTML = `<div class="loading-state" style="padding:1rem">Carregando...</div>`;
 
-    const { data, error } = await db.from('enrollments')
+    // Query 1: matrículas do período com aluno, turma e pagamentos
+    // Usa payments(*) para não quebrar se payment_method ainda não existir no banco
+    const { data: enrollsData, error } = await db.from('enrollments')
       .select(`id, created_at, status, piece_course, responsible_teacher, student_id,
-               students(id, name, ra, enrollments(id)),
+               students(id, name, ra),
                classes(id, day_of_week, courses(name, level, type), profiles(name)),
-               payments(amount, discount_amount, payment_method, installment_number, status)`)
+               payments(*)`)
       .gte('created_at', dateStart + 'T00:00:00')
       .lte('created_at', dateEnd   + 'T23:59:59')
       .order('created_at', { ascending: false });
 
     if (error) {
-      container.innerHTML = `<p class="empty-state">Erro ao carregar matrículas.</p>`;
+      console.error('[Dashboard] loadRecentEnrollments:', error);
+      container.innerHTML = `<p class="empty-state">Erro: ${escapeHtml(error.message || 'Falha ao carregar matrículas.')}</p>`;
       return;
     }
 
-    lastEnrollments = data || [];
+    // Query 2: total de matrículas por aluno (Matrícula vs Rematrícula)
+    // Evita join circular (enrollments → students → enrollments)
+    const studentIds = [...new Set((enrollsData || []).map(e => e.student_id).filter(Boolean))];
+    const enrollCountMap = {};
+    if (studentIds.length) {
+      const { data: countData } = await db.from('enrollments')
+        .select('student_id')
+        .in('student_id', studentIds);
+      (countData || []).forEach(e => {
+        enrollCountMap[e.student_id] = (enrollCountMap[e.student_id] || 0) + 1;
+      });
+    }
+
+    // Anexa o total de matrículas do aluno em cada item para getEnrollmentType()
+    lastEnrollments = (enrollsData || []).map(e => ({
+      ...e,
+      _enrollCount: enrollCountMap[e.student_id] || 1,
+    }));
 
     if (!lastEnrollments.length) {
       container.innerHTML = `<p class="empty-state">Nenhuma matrícula no período.</p>`;
@@ -286,8 +306,8 @@ const DashboardModule = (() => {
   // ─── Tipo de matrícula ─────────────────────────────────────────────
   function getEnrollmentType(e) {
     if (e.classes?.courses?.type === 'production') return 'producao';
-    const total = (e.students?.enrollments || []).length;
-    return total > 1 ? 'rematricula' : 'matricula';
+    // _enrollCount = total de matrículas do aluno (calculado na query 2)
+    return (e._enrollCount || 1) > 1 ? 'rematricula' : 'matricula';
   }
 
   // ─── Exportar matrículas do período como PDF (janela de impressão) ──
