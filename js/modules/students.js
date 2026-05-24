@@ -559,10 +559,14 @@ const StudentsModule = (() => {
                   oninput="StudentsModule.calcInstallment()">
               </div>
               <div class="form-group">
-                <label>Desconto por Parcela (R$) — valido ate dia 12</label>
-                <input type="number" name="discount" class="input" min="0" step="0.01"
-                  value="${enrollment?.discount || 0}"
-                  oninput="StudentsModule.calcInstallment()">
+                <label>Tipo de Desconto (valido ate dia 12) *</label>
+                <select name="discount" class="input" onchange="StudentsModule.calcInstallment()">
+                  <option value="0"   ${!enrollment?.discount || Number(enrollment?.discount)===0   ? 'selected':''}>Sem desconto — R$ 250,00</option>
+                  <option value="70"  ${Number(enrollment?.discount)===70  ? 'selected':''}>Dia de semana (noite) — R$ 180,00 com desconto</option>
+                  <option value="50"  ${Number(enrollment?.discount)===50  ? 'selected':''}>Sabado — R$ 200,00 com desconto</option>
+                  <option value="100" ${Number(enrollment?.discount)===100 ? 'selected':''}>Dia de semana (tarde) — R$ 150,00 com desconto</option>
+                  <option value="90"  ${Number(enrollment?.discount)===90  ? 'selected':''}>Segundo curso / Producao — R$ 160,00 com desconto</option>
+                </select>
               </div>
               <div class="form-group">
                 <label>Num. de Parcelas *</label>
@@ -603,27 +607,33 @@ const StudentsModule = (() => {
   }
 
   function calcInstallment() {
-    const total        = parseFloat(document.querySelector('[name="total_value"]')?.value || 0);
+    // R$250 é sempre o teto (valor integral). O desconto reduz o que o aluno paga
+    // se quitar até o dia 12. Após o dia 12, paga sempre R$250.
+    const FULL_PRICE   = 250;
     const discount     = parseFloat(document.querySelector('[name="discount"]')?.value || 0);
     const installments = parseInt(document.querySelector('[name="payment_installments"]')?.value || 1);
 
-    const fullInstallment       = total / installments;
-    const discountedInstallment = Math.max(0, fullInstallment - discount);
+    // Auto-preenche total_value = 250 × parcelas (padrão TPC — sempre)
+    const totalInput = document.querySelector('[name="total_value"]');
+    if (totalInput && installments > 0) {
+      totalInput.value = (FULL_PRICE * installments).toFixed(2);
+    }
 
+    const discountedInstallment = Math.max(0, FULL_PRICE - discount);
     const previewEl = document.getElementById('installment-preview');
     if (!previewEl) return;
 
-    if (total > 0 && installments > 0) {
+    if (installments > 0) {
       previewEl.style.display = 'block';
       const numEl  = document.getElementById('installment-num-text');
       const wordEl = document.getElementById('installment-word-text');
 
       if (discount > 0) {
-        numEl.textContent  = `${installments}x de ${formatCurrency(discountedInstallment)} (ate dia 12)  |  Integral: ${formatCurrency(fullInstallment)}`;
-        wordEl.textContent = numberToWordsPT(discountedInstallment) + ' — com desconto';
+        numEl.textContent  = `${installments}x de ${formatCurrency(discountedInstallment)} (ate dia 12)  |  Sem desconto: ${formatCurrency(FULL_PRICE)}/parcela`;
+        wordEl.textContent = numberToWordsPT(discountedInstallment) + ' — com desconto ate dia 12';
       } else {
-        numEl.textContent  = `${installments}x de ${formatCurrency(fullInstallment)}`;
-        wordEl.textContent = numberToWordsPT(fullInstallment);
+        numEl.textContent  = `${installments}x de ${formatCurrency(FULL_PRICE)}`;
+        wordEl.textContent = numberToWordsPT(FULL_PRICE);
       }
     } else {
       previewEl.style.display = 'none';
@@ -938,9 +948,14 @@ const StudentsModule = (() => {
                   oninput="StudentsModule.calcInstallment()">
               </div>
               <div class="form-group">
-                <label>Desconto por Parcela (R$) — valido ate dia 12</label>
-                <input type="number" name="discount" class="input" min="0" step="0.01" value="0"
-                  oninput="StudentsModule.calcInstallment()">
+                <label>Tipo de Desconto (valido ate dia 12) *</label>
+                <select name="discount" class="input" onchange="StudentsModule.calcInstallment()">
+                  <option value="0">Sem desconto — R$ 250,00</option>
+                  <option value="70">Dia de semana (noite) — R$ 180,00 com desconto</option>
+                  <option value="50">Sabado — R$ 200,00 com desconto</option>
+                  <option value="100">Dia de semana (tarde) — R$ 150,00 com desconto</option>
+                  <option value="90">Segundo curso / Producao — R$ 160,00 com desconto</option>
+                </select>
               </div>
               <div class="form-group">
                 <label>Num. de Parcelas *</label>
