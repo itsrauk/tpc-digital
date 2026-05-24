@@ -123,7 +123,7 @@ const DashboardModule = (() => {
   async function loadPendingPayments() {
     const { data } = await db.from('payments')
       .select('*, students(name, ra)')
-      .eq('status', 'pending')
+      .in('status', ['pending', 'overdue'])
       .order('due_date', { ascending: true })
       .limit(8);
 
@@ -145,13 +145,15 @@ const DashboardModule = (() => {
           <tbody>
             ${data.map(p => {
               const due    = new Date(p.due_date + 'T00:00:00');
-              const today  = new Date();
-              today.setHours(0,0,0,0);
-              const overdue = due < today;
+              const today  = new Date(); today.setHours(0,0,0,0);
+              const overdue = p.status === 'overdue' || due < today;
+              const disc    = Number(p.discount_amount || 0);
+              const cutoff  = new Date(due.getFullYear(), due.getMonth(), 12, 23, 59, 59);
+              const effAmt  = disc > 0 && new Date() > cutoff ? Number(p.amount) + disc : Number(p.amount);
               return `<tr>
                 <td>${escapeHtml(p.students?.name || '—')}</td>
                 <td class="text-accent">${escapeHtml(p.students?.ra || '—')}</td>
-                <td>${formatCurrency(p.amount)}</td>
+                <td>${formatCurrency(effAmt)}${disc > 0 && new Date() > cutoff ? `<div style="font-size:10px;color:var(--danger)">Desconto perdido</div>` : ''}</td>
                 <td>${formatDate(p.due_date)}</td>
                 <td><span class="badge ${overdue ? 'badge-danger' : 'badge-warning'}">
                   ${overdue ? 'Em Atraso' : 'Pendente'}

@@ -210,32 +210,43 @@ const StudentsModule = (() => {
               onclick="StudentsModule.openEnrollmentForm('${id}')">+ Nova Matricula</button>
             ` : ''}
           </div>
-          ${enrollments?.length ? enrollments.map(e => `
-            <div class="enrollment-card">
-              <div class="enrollment-card-header">
-                <div class="enrollment-course">${escapeHtml(e.classes?.courses?.name || e.piece_course || '—')}</div>
-                <span class="badge badge-${e.status === 'active' ? 'success' : 'secondary'}">
-                  ${STATUS_LABELS[e.status] || e.status}
-                </span>
-              </div>
-              <div class="enrollment-meta">
-                Professor: ${escapeHtml(e.classes?.profiles?.name || e.responsible_teacher || '—')}<br>
-                Periodo: ${fmtPeriodDisplay(e.period_start, e.period_end)}<br>
-                Carga: ${escapeHtml(e.workload_label || '—')}<br>
-                Valor: ${formatCurrency(e.total_value)} (${e.payment_installments}x)
-              </div>
-              ${e.status === 'active' && Auth.isAdmin() ? `
-              <div class="enrollment-actions">
-                <button class="btn btn-secondary btn-sm"
-                  onclick="StudentsModule.exportEnrollmentContract('${id}', '${e.id}')">
-                  Contrato
-                </button>
-                <button class="btn btn-danger btn-sm"
-                  onclick="StudentsModule.cancelEnrollment('${e.id}', '${id}')">
-                  Cancelar
-                </button>
-              </div>` : ''}
-            </div>`).join('') : '<p class="empty-state">Sem matriculas.</p>'}
+          ${(() => {
+            const all   = enrollments || [];
+            const main  = all.filter(e => e.status === 'active' && e.classes?.courses?.type !== 'production');
+            const prods = all.filter(e => e.status === 'active' && e.classes?.courses?.type === 'production');
+            const hist  = all.filter(e => e.status !== 'active');
+            function card(e) {
+              const level = e.classes?.courses?.level || '';
+              const disc  = Number(e.discount || 0);
+              const pmt   = Number(e.payment_installments) || 1;
+              const installAmt = disc > 0 ? (Number(e.total_value) / pmt - disc) : null;
+              return `<div class="enrollment-card">
+                <div class="enrollment-card-header">
+                  <div>
+                    <div class="enrollment-course">${escapeHtml(e.classes?.courses?.name || e.piece_course || '—')}${level ? ` <span style="color:var(--text-muted);font-size:0.82em">${escapeHtml(level)}</span>` : ''}</div>
+                  </div>
+                  <span class="badge badge-${e.status === 'active' ? 'success' : 'secondary'}">${STATUS_LABELS[e.status] || e.status}</span>
+                </div>
+                <div class="enrollment-meta">
+                  Professor: ${escapeHtml(e.classes?.profiles?.name || e.responsible_teacher || '—')}<br>
+                  Periodo: ${fmtPeriodDisplay(e.period_start, e.period_end)}<br>
+                  Carga: ${escapeHtml(e.workload_label || '—')}<br>
+                  Valor: ${formatCurrency(e.total_value)} (${e.payment_installments}x)${installAmt !== null ? ` — <span style="color:var(--success);font-size:0.82em">${formatCurrency(installAmt)}/parc. ate dia 12</span>` : ''}
+                </div>
+                ${e.status === 'active' && Auth.isAdmin() ? `<div class="enrollment-actions">
+                  <button class="btn btn-secondary btn-sm" onclick="StudentsModule.openEnrollmentEditForm('${e.id}', '${id}')">Editar</button>
+                  <button class="btn btn-secondary btn-sm" onclick="StudentsModule.exportEnrollmentContract('${id}', '${e.id}')">Contrato</button>
+                  <button class="btn btn-danger btn-sm" onclick="StudentsModule.cancelEnrollment('${e.id}', '${id}')">Cancelar</button>
+                </div>` : ''}
+              </div>`;
+            }
+            if (!all.length) return '<p class="empty-state">Sem matriculas.</p>';
+            let html = '';
+            if (main.length)  { html += '<p style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.4rem">Curso Principal</p>' + main.map(card).join(''); }
+            if (prods.length) { html += '<p style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:.75rem 0 .4rem">Producoes</p>'    + prods.map(card).join(''); }
+            if (hist.length)  { html += '<p style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:.75rem 0 .4rem">Historico</p>'    + hist.map(card).join(''); }
+            return html;
+          })()}
 
           <h3 class="detail-section-title mt-4">Pagamentos</h3>
           ${payments?.length ? `
@@ -1069,6 +1080,165 @@ const StudentsModule = (() => {
     }
   }
 
+  // ─── Editar matrícula existente ─────────────────────────
+  async function openEnrollmentEditForm(enrollmentId, studentId) {
+    const { data: enrollment } = await db.from('enrollments')
+      .select('*, classes(id, courses(id, name, level, type), profiles(id, name))')
+      .eq('id', enrollmentId).single();
+
+    if (!enrollment) return toast('Matricula nao encontrada.', 'error');
+
+    const { data: classes }  = await db.from('classes')
+      .select('id, day_of_week, schedule, courses(name, level, type), profiles(name)')
+      .eq('status', 'active');
+    const { data: teachers } = await db.from('profiles').select('id, name').eq('role', 'teacher');
+
+    const classOptions = (classes || []).map(c =>
+      `<option value="${c.id}" ${enrollment.class_id === c.id ? 'selected' : ''}>
+        ${escapeHtml(c.courses?.name || '—')} - ${escapeHtml(c.profiles?.name || '—')}
+        (${DAYS_PT[c.day_of_week] || c.day_of_week} ${c.schedule?.substring(0, 5)})
+      </option>`
+    ).join('');
+
+    const teacherOptions = (teachers || []).map(t =>
+      `<option value="${t.name}" ${enrollment.responsible_teacher === t.name ? 'selected' : ''}>
+        ${escapeHtml(t.name)}
+      </option>`
+    ).join('');
+
+    const WORKLOAD_OPTIONS = ['6 meses', '12 meses', '14 meses', '15 meses', '18 meses', '2 anos'];
+    const existingWorkload  = enrollment.workload_label || '';
+    const isCustomWorkload  = !!(existingWorkload && !WORKLOAD_OPTIONS.includes(existingWorkload));
+    const workloadSelectOptions = [
+      '<option value="">— Selecione —</option>',
+      ...WORKLOAD_OPTIONS.map(o =>
+        `<option value="${o}" ${existingWorkload === o ? 'selected' : ''}>${o}</option>`
+      ),
+      `<option value="Personalizado" ${isCustomWorkload ? 'selected' : ''}>Personalizado</option>`,
+    ].join('');
+
+    const disc = Number(enrollment.discount || 0);
+
+    openModal('Editar Matricula', `
+      <form id="enrollment-edit-form" onsubmit="StudentsModule.saveEnrollmentEdit(event,'${enrollmentId}','${studentId}')">
+        <div class="form-grid">
+          <div class="form-group span-2">
+            <label>Peca / Curso *</label>
+            <input type="text" name="piece_course" class="input" required
+              value="${escapeHtml(enrollment.piece_course || '')}">
+          </div>
+          <div class="form-group span-2">
+            <label>Turma</label>
+            <select name="class_id" class="input">
+              <option value="">— Selecione —</option>
+              ${classOptions}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Inicio do Periodo</label>
+            <input type="month" name="period_start" class="input"
+              value="${enrollment.period_start || ''}">
+          </div>
+          <div class="form-group">
+            <label>Fim do Periodo</label>
+            <input type="month" name="period_end" class="input"
+              value="${enrollment.period_end || ''}">
+          </div>
+          <div class="form-group">
+            <label>Carga Horaria</label>
+            <select name="workload_select" class="input"
+              onchange="StudentsModule.onWorkloadChange(this)">
+              ${workloadSelectOptions}
+            </select>
+          </div>
+          <div class="form-group" id="workload-custom-group"
+            style="${isCustomWorkload ? 'display:block' : 'display:none'}">
+            <label>Carga Personalizada</label>
+            <input type="text" name="workload_custom" class="input"
+              value="${isCustomWorkload ? escapeHtml(existingWorkload) : ''}">
+          </div>
+          <div class="form-group">
+            <label>Professor Responsavel</label>
+            <select name="responsible_teacher" class="input">
+              <option value="">— Selecione —</option>
+              ${teacherOptions}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Tipo de Desconto</label>
+            <select name="discount" class="input">
+              <option value="0"   ${disc===0   ? 'selected':''}>Sem desconto — R$ 250,00/parcela</option>
+              <option value="70"  ${disc===70  ? 'selected':''}>Dia de semana (noite) — R$ 180,00 com desconto</option>
+              <option value="50"  ${disc===50  ? 'selected':''}>Sabado — R$ 200,00 com desconto</option>
+              <option value="100" ${disc===100 ? 'selected':''}>Dia de semana (tarde) — R$ 150,00 com desconto</option>
+              <option value="90"  ${disc===90  ? 'selected':''}>Segundo curso / Producao — R$ 160,00 com desconto</option>
+            </select>
+            <small style="color:var(--text-muted);font-size:0.78rem;margin-top:4px;display:block">
+              Alterar o desconto atualizara as parcelas <strong>pendentes</strong> automaticamente.
+            </small>
+          </div>
+          <div class="form-group span-2">
+            <label>Plano de Pagamento / Observacoes</label>
+            <textarea name="payment_plan" class="input textarea" rows="3"
+              >${escapeHtml(enrollment.payment_plan || '')}</textarea>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Matricula</button>
+        </div>
+      </form>
+    `, true);
+  }
+
+  async function saveEnrollmentEdit(event, enrollmentId, studentId) {
+    event.preventDefault();
+    const fd   = new FormData(event.target);
+    const data = Object.fromEntries(fd.entries());
+    const btn  = event.target.querySelector('[type="submit"]');
+    btn.disabled    = true;
+    btn.textContent = 'Salvando...';
+
+    try {
+      const FULL_PRICE = 250;
+      const discount   = parseFloat(data.discount || 0);
+      const workloadLabel = data.workload_select === 'Personalizado'
+        ? (data.workload_custom || null)
+        : (data.workload_select || null);
+
+      const { error } = await db.from('enrollments').update({
+        piece_course:        data.piece_course,
+        class_id:            data.class_id || null,
+        period_start:        data.period_start || null,
+        period_end:          data.period_end   || null,
+        workload_label:      workloadLabel,
+        responsible_teacher: data.responsible_teacher || null,
+        discount:            discount,
+        payment_plan:        data.payment_plan || null,
+      }).eq('id', enrollmentId);
+      if (error) throw error;
+
+      // Atualiza parcelas pendentes com o novo tipo de desconto
+      await db.from('payments').update({
+        amount:          FULL_PRICE - discount,
+        discount_amount: discount,
+      }).eq('enrollment_id', enrollmentId).eq('status', 'pending');
+
+      AuditLog.log('enrollment_updated', 'enrollment', enrollmentId, null,
+        `Matricula editada — desconto R$${discount}, parcela R$${FULL_PRICE - discount}`);
+
+      toast('Matricula atualizada com sucesso.', 'success');
+      closeModal();
+      await loadStudents();
+      openDetail(studentId);
+    } catch (err) {
+      console.error(err);
+      toast('Erro ao salvar: ' + (err.message || 'Tente novamente.'), 'error');
+      btn.disabled    = false;
+      btn.textContent = 'Salvar Matricula';
+    }
+  }
+
   async function cancelEnrollment(enrollmentId, studentId) {
     const confirmed = await confirmDialog(
       'Cancelar esta matricula? Esta acao nao pode ser desfeita.'
@@ -1131,5 +1301,6 @@ const StudentsModule = (() => {
     updateAge, calcInstallment,
     onWorkloadChange, downloadPendingContract,
     openEnrollmentForm, saveEnrollment, cancelEnrollment, exportEnrollmentContract,
+    openEnrollmentEditForm, saveEnrollmentEdit,
   };
 })();

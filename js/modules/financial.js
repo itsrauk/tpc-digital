@@ -348,21 +348,45 @@ const FinancialModule = (() => {
     const mL = 14, mR = W - 14;
     const now = new Date();
 
+    // Aplicar filtro ativo
+    const FILTER_LABELS = {
+      due_this_month: 'Vencem esse Mes',
+      pending: 'Pendentes',
+      overdue: 'Em Atraso',
+      paid: 'Pagos',
+      all: 'Todos',
+    };
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const overdueMarked = allPayments.map(p =>
+      p.status === 'pending' && new Date(p.due_date + 'T00:00:00') < today
+        ? { ...p, status: 'overdue' } : p
+    );
+    let paymentsToExport = [...overdueMarked];
+    if (currentFilter === 'due_this_month') {
+      paymentsToExport = paymentsToExport.filter(p => {
+        const due = new Date(p.due_date + 'T00:00:00');
+        return due.getMonth() === now.getMonth() && due.getFullYear() === now.getFullYear();
+      });
+    } else if (currentFilter !== 'all') {
+      paymentsToExport = paymentsToExport.filter(p => p.status === currentFilter);
+    }
+    const filterLabel = FILTER_LABELS[currentFilter] || 'Todos';
+
     // ─── Cabeçalho ────────────────────────────────────────────
     doc.setFillColor(30, 30, 30);
     doc.rect(0, 0, W, 18, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(11); doc.setFont('helvetica', 'bold');
-    doc.text('TPC - Teatro Popular de Comedia  |  Relatorio Financeiro', mL, 8);
+    doc.text(`TPC - Teatro Popular de Comedia  |  Relatorio Financeiro — ${filterLabel}`, mL, 8);
     doc.setFontSize(8); doc.setFont('helvetica', 'normal');
     doc.text(
-      `Gerado em ${now.toLocaleDateString('pt-BR')} as ${now.toLocaleTimeString('pt-BR')}  |  Total: ${allPayments.length} lancamentos`,
+      `Gerado em ${now.toLocaleDateString('pt-BR')} as ${now.toLocaleTimeString('pt-BR')}  |  Total: ${paymentsToExport.length} lancamentos`,
       mR, 8, { align: 'right' }
     );
 
     // ─── Indicadores rápidos ──────────────────────────────────
-    const paid    = allPayments.filter(p => p.status === 'paid').reduce((s, p) => s + Number(p.amount), 0);
-    const pending = allPayments.filter(p => p.status !== 'paid').reduce((s, p) => s + Number(p.amount), 0);
+    const paid    = paymentsToExport.filter(p => p.status === 'paid').reduce((s, p) => s + Number(p.amount), 0);
+    const pending = paymentsToExport.filter(p => p.status !== 'paid').reduce((s, p) => s + Number(p.amount), 0);
     doc.setFontSize(8); doc.setTextColor(200, 200, 200);
     doc.text(`Total pago: ${formatCurrency(paid)}`, mL, 14);
     doc.text(`Total em aberto: ${formatCurrency(pending)}`, mL + 70, 14);
@@ -385,7 +409,7 @@ const FinancialModule = (() => {
 
     // Linhas de dados
     let rowBg = false;
-    allPayments.forEach(p => {
+    paymentsToExport.forEach(p => {
       if (y > H - 14) {
         // Nova página
         doc.addPage();
@@ -458,7 +482,7 @@ const FinancialModule = (() => {
       doc.text('Documento confidencial — uso interno', mR, H - 4, { align: 'right' });
     }
 
-    doc.save(`relatorio-financeiro-tpc-${now.toISOString().split('T')[0]}.pdf`);
+    doc.save(`relatorio-financeiro-tpc-${filterLabel.toLowerCase().replace(/ /g,'-')}-${now.toISOString().split('T')[0]}.pdf`);
   }
 
   return { render, filter, markPaid, markPending, openEdit, savePayment, exportReport };
