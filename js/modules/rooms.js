@@ -647,7 +647,6 @@ const RoomsModule = (() => {
       return toast('Erro: ' + error.message, 'error');
     }
 
-    const cls = allClasses.find(c => c.id === classId);
     if (cls?.teacher_id) {
       await NotificationsHelper.notify(
         cls.teacher_id,
