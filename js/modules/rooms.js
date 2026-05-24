@@ -229,6 +229,7 @@ const RoomsModule = (() => {
     const carusoRoom  = allRooms.find(r => r.name === 'Marcos Caruso');
     const weekBookings = bookings.filter(b => {
       if (carusoRoom && b.room_id !== carusoRoom.id) return false;
+      if (b.status === 'cancelled') return false;
       const bd = new Date(b.booking_date + 'T00:00:00');
       return bd >= days[0] && bd <= days[6];
     });

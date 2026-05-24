@@ -171,7 +171,8 @@ const StudentsModule = (() => {
 
   // ─── Detalhes do aluno ────────────────────────────────────
   async function openDetail(id) {
-    const student = allStudents.find(s => s.id === id);
+    // Busca dados completos do aluno (loadStudents só traz colunas da tabela — sem RG, CPF etc.)
+    const { data: student } = await db.from('students').select('*').eq('id', id).single();
     if (!student) return;
 
     const { data: enrollments } = await db.from('enrollments')
