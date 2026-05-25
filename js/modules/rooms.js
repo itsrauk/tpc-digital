@@ -554,8 +554,16 @@ const RoomsModule = (() => {
 
   async function resolveChangeReq(id, status) {
     const req = changeReqs.find(r => r.id === id);
-    const { error } = await db.from('room_change_requests').update({ status }).eq('id', id);
-    if (error) return toast('Erro.', 'error');
+    const { data, error } = await db.from('room_change_requests')
+      .update({ status })
+      .eq('id', id)
+      .select('id');
+
+    if (error) return toast('Erro ao atualizar: ' + error.message, 'error');
+    if (!data?.length) {
+      toast('Sem permissao para atualizar. Execute sql/fix_v17.sql no Supabase.', 'error');
+      return;
+    }
 
     if (req?.teacher_id) {
       await NotificationsHelper.notify(
