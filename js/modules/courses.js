@@ -18,8 +18,9 @@ const CoursesModule = (() => {
   }
 
   async function loadClasses() {
-    const isAdmin = Auth.isAdmin();
-    const profile = Auth.getProfile();
+    const isAdmin   = Auth.isAdmin();
+    const canManage = Auth.canManageStudents();
+    const profile   = Auth.getProfile();
 
     try {
       let query = db.from('classes')
@@ -29,7 +30,9 @@ const CoursesModule = (() => {
           enrollments(id, status, students(id, name, ra))`)
         .order('status').order('created_at', { ascending: false });
 
-      if (!isAdmin) {
+      // Apenas quem não pode gerenciar (professor) vê só as próprias turmas
+      // — mas professores não chegam aqui pois o router já bloqueia
+      if (!canManage) {
         query = query.eq('teacher_id', profile?.id);
       }
 
@@ -114,7 +117,7 @@ const CoursesModule = (() => {
         </div>
         <div class="class-card-footer">
           <span class="student-count">${activeStudents.length} alunos</span>
-          ${activeStudents.length > 0 ? `
+          ${activeStudents.length > 0 && Auth.canManageStudents() ? `
           <button class="btn btn-secondary btn-sm"
             onclick="event.stopPropagation(); CoursesModule.openChamada('${c.id}')">
             Chamada
@@ -177,7 +180,7 @@ const CoursesModule = (() => {
             <h3 class="detail-section-title" style="margin:0;">
               Alunos Matriculados (${activeEnrollments.length})
             </h3>
-            ${activeEnrollments.length ? `
+            ${activeEnrollments.length && Auth.canManageStudents() ? `
             <button class="btn btn-primary btn-sm"
               onclick="CoursesModule.openChamada('${id}')">
               Fazer Chamada
@@ -195,9 +198,7 @@ const CoursesModule = (() => {
                   <td class="text-accent">${escapeHtml(e.students?.ra || '—')}</td>
                   <td>${escapeHtml(e.students?.student_phone || '—')}</td>
                   <td>
-                    <button class="btn-icon" onclick="CoursesModule.openAttendance('${e.id}', '${id}')">
-                      Ver faltas
-                    </button>
+                    ${Auth.canManageStudents() ? `<button class="btn-icon" onclick="CoursesModule.openAttendance('${e.id}', '${id}')">Ver faltas</button>` : '—'}
                   </td>
                 </tr>`).join('')}
               </tbody>
@@ -210,6 +211,7 @@ const CoursesModule = (() => {
 
   // ─── Chamada em massa ────────────────────────────────────
   async function openChamada(classId) {
+    if (!Auth.canManageStudents()) return;
     const today = new Date().toISOString().split('T')[0];
 
     const { data: cls } = await db.from('classes')
@@ -357,6 +359,7 @@ const CoursesModule = (() => {
 
   // ─── Frequência individual ────────────────────────────────
   async function openAttendance(enrollmentId, classId) {
+    if (!Auth.canManageStudents()) return;
     const today = new Date().toISOString().split('T')[0];
 
     // Busca dados do aluno + todo o histórico
@@ -430,6 +433,7 @@ const CoursesModule = (() => {
   }
 
   async function saveAttendance(enrollmentId, classId) {
+    if (!Auth.canManageStudents()) return;
     const date   = document.getElementById('att-date')?.value;
     const status = document.getElementById('att-status')?.value;
     if (!date) return toast('Selecione a data.', 'warning');

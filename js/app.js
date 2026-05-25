@@ -124,10 +124,10 @@ const Router = (() => {
     // Admin: tudo
     // Financeiro: tudo exceto configurações
     // Secretaria: dashboard, alunos, turmas, salas, reuniões, financeiro (sem totais)
-    // Professor: dashboard, salas, reuniões
+    // Professor: dashboard, turmas (só as suas, sem chamada/faltas), salas, reuniões
     if (view === 'settings' && !Auth.isAdmin()) return;
     if ((view === 'history' || view === 'teachers') && !Auth.isAdminOrFinancial()) return;
-    if ((view === 'students' || view === 'courses') && !Auth.canManageStudents()) return;
+    if (view === 'students' && !Auth.canManageStudents()) return;
     if (view === 'financial' && !Auth.canAccessFinancial()) return;
 
     // Fecha sidebar mobile ao navegar
@@ -214,11 +214,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     isSecretary ? 'Secretaria'    : 'Professor';
 
   // ─── Visibilidade do menu por perfil ──────────────────────
-  // admin + financial + secretary: Alunos, Turmas, Financeiro
-  ['nav-students', 'nav-courses', 'nav-financial'].forEach(id => {
+  // admin + financial + secretary: Alunos, Financeiro
+  ['nav-students', 'nav-financial'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = canManage ? 'flex' : 'none';
   });
+
+  // Turmas: todos os perfis (professor vê só as suas turmas, sem chamada/faltas)
+  // nav-courses é sempre visível — sem hide/show necessário
 
   // admin + financial: Professores, Histórico
   ['nav-teachers', 'nav-history'].forEach(id => {
