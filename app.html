@@ -128,6 +128,21 @@
         </button>
         <span id="page-title">Dashboard</span>
         <div class="topbar-right">
+          <!-- Busca global -->
+          <div class="global-search-wrap" id="global-search-wrap">
+            <button class="notif-btn" id="btn-search" onclick="GlobalSearch.toggle()" title="Buscar aluno">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="6.5" cy="6.5" r="4.5"/>
+                <path d="M11 11l3 3"/>
+              </svg>
+            </button>
+            <div class="global-search-panel" id="global-search-panel" style="display:none">
+              <input type="text" id="global-search-input" class="input" placeholder="Buscar aluno por nome ou RA..."
+                oninput="GlobalSearch.search(this.value)" autocomplete="off">
+              <div id="global-search-results"></div>
+            </div>
+          </div>
+
           <button class="notif-btn" id="btn-notifications"
             onclick="NotificationsHelper.openPanel()" title="Notificacoes">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -158,25 +173,25 @@
   </div>
 
   <!-- ─── Scripts ────────────────────────────────────────────── -->
-  <!-- v18 — feat: gestão de usuários em Configurações -->
+  <!-- v19 — feat: busca global, inadimplência, frequência, tipo matrícula -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script src="js/config.js?v=18"></script>
-  <script src="js/utils/helpers.js?v=18"></script>
-  <script src="js/utils/pdf.js?v=18"></script>
-  <script src="js/utils/audit.js?v=18"></script>
-  <script src="js/utils/notifications.js?v=18"></script>
-  <script src="js/auth.js?v=18"></script>
-  <script src="js/modules/dashboard.js?v=18"></script>
-  <script src="js/modules/students.js?v=18"></script>
-  <script src="js/modules/courses.js?v=18"></script>
-  <script src="js/modules/teachers.js?v=18"></script>
-  <script src="js/modules/rooms.js?v=18"></script>
-  <script src="js/modules/meetings.js?v=18"></script>
-  <script src="js/modules/financial.js?v=18"></script>
-  <script src="js/modules/history.js?v=18"></script>
-  <script src="js/modules/settings.js?v=18"></script>
-  <script src="js/app.js?v=18"></script>
+  <script src="js/config.js?v=19"></script>
+  <script src="js/utils/helpers.js?v=19"></script>
+  <script src="js/utils/pdf.js?v=19"></script>
+  <script src="js/utils/audit.js?v=19"></script>
+  <script src="js/utils/notifications.js?v=19"></script>
+  <script src="js/auth.js?v=19"></script>
+  <script src="js/modules/dashboard.js?v=19"></script>
+  <script src="js/modules/students.js?v=19"></script>
+  <script src="js/modules/courses.js?v=19"></script>
+  <script src="js/modules/teachers.js?v=19"></script>
+  <script src="js/modules/rooms.js?v=19"></script>
+  <script src="js/modules/meetings.js?v=19"></script>
+  <script src="js/modules/financial.js?v=19"></script>
+  <script src="js/modules/history.js?v=19"></script>
+  <script src="js/modules/settings.js?v=19"></script>
+  <script src="js/app.js?v=19"></script>
 </body>
 </html>

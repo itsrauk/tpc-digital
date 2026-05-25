@@ -74,7 +74,11 @@ const FinancialModule = (() => {
       <div class="view-header">
         <h1 class="view-title">Financeiro</h1>
         <div class="view-actions">
-          ${canTotals ? `<button class="btn btn-secondary" onclick="FinancialModule.exportReport()">
+          ${canTotals ? `
+          <button class="btn btn-secondary" onclick="FinancialModule.openInadimplencia()">
+            Inadimplentes${overdueIds.length ? ` <span class="badge badge-danger" style="margin-left:4px;font-size:10px">${overdueIds.length}</span>` : ''}
+          </button>
+          <button class="btn btn-secondary" onclick="FinancialModule.exportReport()">
             Exportar Relatorio
           </button>` : ''}
         </div>
@@ -237,7 +241,7 @@ const FinancialModule = (() => {
                 ? `<div style="margin-top:3px"><span style="font-size:10px;padding:1px 7px;border-radius:3px;background:${METHOD_COLORS[p.payment_method]}22;color:${METHOD_COLORS[p.payment_method]};font-weight:700;border:1px solid ${METHOD_COLORS[p.payment_method]}44">${METHOD_LABELS[p.payment_method]}</span></div>`
                 : '';
 
-              return `<tr>
+              return `<tr class="${p.status === 'overdue' ? 'tr-overdue' : ''}">
                 <td>${escapeHtml(p.students?.name || '—')}</td>
                 <td class="text-accent">${escapeHtml(p.students?.ra || '—')}</td>
                 <td class="text-secondary">${escapeHtml(p.enrollments?.piece_course || '—')}</td>
@@ -611,9 +615,145 @@ const FinancialModule = (() => {
     doc.save(`relatorio-financeiro-tpc-${filterLabel.toLowerCase().replace(/ /g, '-')}-${now.toISOString().split('T')[0]}.pdf`);
   }
 
+  // ─── Modal de inadimplentes ────────────────────────────────────
+  function openInadimplencia() {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    const overdue = allPayments
+      .filter(p => p.status === 'pending' && new Date(p.due_date + 'T00:00:00') < today)
+      .map(p => ({ ...p, status: 'overdue' }));
+
+    // Agrupa por aluno
+    const byStudent = {};
+    overdue.forEach(p => {
+      const sid  = p.student_id;
+      const name = p.students?.name || '—';
+      const ra   = p.students?.ra   || '—';
+      if (!byStudent[sid]) byStudent[sid] = { name, ra, total: 0, parcelas: [] };
+      byStudent[sid].total += Number(p.amount);
+      byStudent[sid].parcelas.push(p);
+    });
+
+    const rows = Object.values(byStudent)
+      .sort((a, b) => b.total - a.total);
+
+    const totalGeral = rows.reduce((s, r) => s + r.total, 0);
+
+    if (!rows.length) {
+      openModal('Inadimplentes', `
+        <div class="empty-state" style="padding:2rem;">
+          Nenhum pagamento em atraso.
+        </div>`);
+      return;
+    }
+
+    openModal('Inadimplentes', `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+        <div>
+          <span class="badge badge-danger" style="font-size:13px;padding:4px 12px;">
+            ${rows.length} alunos
+          </span>
+          <span style="margin-left:10px;color:var(--text-secondary);font-size:13px;">
+            Total em atraso: <strong style="color:var(--danger)">${formatCurrency(totalGeral)}</strong>
+          </span>
+        </div>
+        <button class="btn btn-secondary" style="font-size:12px" onclick="FinancialModule.exportInadimplencia()">
+          Exportar PDF
+        </button>
+      </div>
+
+      <div class="table-wrapper" style="max-height:60vh;overflow-y:auto;">
+        <table class="data-table">
+          <thead><tr>
+            <th>Aluno</th><th>RA</th><th>Parcelas</th><th>Total em Atraso</th><th>Proxima Acao</th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(r => {
+              const parcs = r.parcelas
+                .sort((a, b) => a.due_date.localeCompare(b.due_date))
+                .map(p => `${p.installment_number || '?'} (${formatDate(p.due_date)})`)
+                .join(', ');
+              return `<tr class="tr-overdue">
+                <td><strong>${escapeHtml(r.name)}</strong></td>
+                <td class="text-accent">${escapeHtml(r.ra)}</td>
+                <td class="text-secondary" style="font-size:12px">${parcs}</td>
+                <td><strong style="color:var(--danger)">${formatCurrency(r.total)}</strong></td>
+                <td>
+                  <button class="btn-icon" onclick="FinancialModule.filter('overdue');closeModal()">
+                    Ver lancamentos
+                  </button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `, true);
+  }
+
+  function exportInadimplencia() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const W = 210, mL = 14, mR = W - 14;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const now = new Date();
+
+    const overdue = allPayments
+      .filter(p => p.status === 'pending' && new Date(p.due_date + 'T00:00:00') < today);
+
+    const byStudent = {};
+    overdue.forEach(p => {
+      const sid = p.student_id;
+      if (!byStudent[sid]) byStudent[sid] = { name: p.students?.name || '—', ra: p.students?.ra || '—', total: 0, count: 0 };
+      byStudent[sid].total += Number(p.amount);
+      byStudent[sid].count++;
+    });
+    const rows = Object.values(byStudent).sort((a, b) => b.total - a.total);
+    const totalGeral = rows.reduce((s, r) => s + r.total, 0);
+
+    doc.setFillColor(30, 30, 30);
+    doc.rect(0, 0, W, 20, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+    doc.text('TPC - Teatro Popular de Comedia', mL, 9);
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text(`Relatorio de Inadimplencia — ${now.toLocaleDateString('pt-BR')}`, mL, 15);
+    doc.text(`${rows.length} alunos  |  Total: ${formatCurrency(totalGeral)}`, mR, 12, { align: 'right' });
+
+    let y = 30;
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+    doc.setFillColor(245, 245, 245);
+    doc.rect(mL - 2, y - 4, mR - mL + 4, 7, 'F');
+    doc.setTextColor(50, 50, 50);
+    ['Aluno', 'RA', 'Parcelas em atraso', 'Total'].forEach((h, i) => {
+      doc.text(h, [mL, 75, 120, 165][i], y);
+    });
+    y += 7;
+
+    rows.forEach((r, idx) => {
+      if (y > 270) { doc.addPage(); y = 20; }
+      if (idx % 2 === 0) {
+        doc.setFillColor(253, 235, 235);
+        doc.rect(mL - 2, y - 3.5, mR - mL + 4, 6.5, 'F');
+      }
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(20, 20, 20);
+      doc.text(r.name.substring(0, 28), mL, y);
+      doc.text(r.ra, 75, y);
+      doc.text(`${r.count} parcela${r.count > 1 ? 's' : ''}`, 120, y);
+      doc.setTextColor(192, 57, 43); doc.setFont('helvetica', 'bold');
+      doc.text(formatCurrency(r.total), 165, y);
+      doc.setTextColor(20, 20, 20); doc.setFont('helvetica', 'normal');
+      y += 6.5;
+    });
+
+    doc.save(`inadimplencia-tpc-${now.toISOString().split('T')[0]}.pdf`);
+    toast('PDF gerado.', 'success');
+  }
+
   return {
     render, filter,
     markPaid, selectMethod, confirmMarkPaid,
     markPending, openEdit, savePayment, exportReport,
+    openInadimplencia, exportInadimplencia,
   };
 })();

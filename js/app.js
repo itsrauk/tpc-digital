@@ -1,3 +1,106 @@
+// ─── Busca Global ─────────────────────────────────────────────
+const GlobalSearch = (() => {
+  let _open   = false;
+  let _timer  = null;
+
+  function toggle() {
+    _open = !_open;
+    const panel = document.getElementById('global-search-panel');
+    const input = document.getElementById('global-search-input');
+    if (!panel) return;
+    panel.style.display = _open ? 'block' : 'none';
+    if (_open) { input?.focus(); }
+    else { clear(); }
+  }
+
+  function close() {
+    _open = false;
+    const panel = document.getElementById('global-search-panel');
+    if (panel) panel.style.display = 'none';
+    clear();
+  }
+
+  function clear() {
+    const input = document.getElementById('global-search-input');
+    const res   = document.getElementById('global-search-results');
+    if (input) input.value = '';
+    if (res)   res.innerHTML = '';
+  }
+
+  async function search(q) {
+    clearTimeout(_timer);
+    const res = document.getElementById('global-search-results');
+    if (!res) return;
+    if (!q || q.length < 2) { res.innerHTML = ''; return; }
+
+    res.innerHTML = `<div class="gs-loading">Buscando...</div>`;
+
+    _timer = setTimeout(async () => {
+      // Busca por nome OU por RA (ilike em ambos)
+      const [byName, byRa] = await Promise.all([
+        db.from('students')
+          .select('id, name, ra, status, enrollments(status, classes(courses(name, level)))')
+          .ilike('name', `%${q}%`)
+          .limit(8),
+        db.from('students')
+          .select('id, name, ra, status, enrollments(status, classes(courses(name, level)))')
+          .ilike('ra', `%${q}%`)
+          .limit(4),
+      ]);
+
+      const seen = new Set();
+      const students = [];
+      for (const s of [...(byName.data || []), ...(byRa.data || [])]) {
+        if (!seen.has(s.id)) { seen.add(s.id); students.push(s); }
+      }
+
+      if (!students.length) {
+        res.innerHTML = `<div class="gs-empty">Nenhum aluno encontrado.</div>`;
+        return;
+      }
+
+      res.innerHTML = students.map(s => {
+        const activeEnroll = (s.enrollments || []).find(e => e.status === 'active');
+        const curso = activeEnroll?.classes?.courses?.name || '—';
+        const nivel = activeEnroll?.classes?.courses?.level ? ` Nível ${activeEnroll.classes.courses.level}` : '';
+        return `<div class="gs-item" onclick="GlobalSearch.goTo('${s.id}')">
+          <div class="gs-item-name">${escapeHtml(s.name)}</div>
+          <div class="gs-item-meta">
+            <span class="text-accent">${escapeHtml(s.ra || '—')}</span>
+            · ${escapeHtml(curso + nivel)}
+            · <span class="badge badge-${s.status === 'active' ? 'success' : 'secondary'}" style="font-size:9px">${STATUS_LABELS[s.status] || s.status}</span>
+          </div>
+        </div>`;
+      }).join('');
+    }, 300);
+  }
+
+  function goTo(studentId) {
+    close();
+    // Navega para Alunos e abre o detalhe
+    Router.navigate('students');
+    // Aguarda o módulo carregar, então abre o modal
+    setTimeout(() => StudentsModule.openDetail(studentId), 600);
+  }
+
+  // Fecha ao clicar fora
+  document.addEventListener('click', e => {
+    const wrap = document.getElementById('global-search-wrap');
+    if (_open && wrap && !wrap.contains(e.target)) close();
+  });
+
+  // Atalho Ctrl+K / Cmd+K
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      toggle();
+    }
+    if (e.key === 'Escape' && _open) close();
+  });
+
+  return { toggle, close, search, goTo };
+})();
+
 // ─── Roteador ─────────────────────────────────────────────────
 const Router = (() => {
   const routes = {

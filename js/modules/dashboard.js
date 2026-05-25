@@ -304,10 +304,13 @@ const DashboardModule = (() => {
   }
 
   // ─── Tipo de matrícula ─────────────────────────────────────────────
+  // Matrícula   = Nível 1 ou Infantil 1
+  // Rematrícula = Nível 2+ ou Infantil 2+
+  // Produção    = type === 'production'
   function getEnrollmentType(e) {
     if (e.classes?.courses?.type === 'production') return 'producao';
-    // _enrollCount = total de matrículas do aluno (calculado na query 2)
-    return (e._enrollCount || 1) > 1 ? 'rematricula' : 'matricula';
+    const level = parseInt(e.classes?.courses?.level) || 1;
+    return level >= 2 ? 'rematricula' : 'matricula';
   }
 
   // ─── Exportar matrículas do período como PDF (janela de impressão) ──

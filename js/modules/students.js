@@ -175,12 +175,39 @@ const StudentsModule = (() => {
     const { data: student } = await db.from('students').select('*').eq('id', id).single();
     if (!student) return;
 
-    const { data: enrollments } = await db.from('enrollments')
-      .select('*, classes(courses(name, level, type), profiles(name))')
-      .eq('student_id', id);
+    const [enrollRes, paymentsRes] = await Promise.all([
+      db.from('enrollments')
+        .select('*, classes(id, courses(name, level, type), profiles(name))')
+        .eq('student_id', id),
+      db.from('payments')
+        .select('*').eq('student_id', id).order('due_date'),
+    ]);
+    const enrollments = enrollRes.data || [];
+    const payments    = paymentsRes.data || [];
 
-    const { data: payments } = await db.from('payments')
-      .select('*').eq('student_id', id).order('due_date');
+    // Frequência: busca chamadas de todos os enrollments ativos
+    const activeEnrollIds = enrollments.filter(e => e.status === 'active').map(e => e.id);
+    let attMap = {};
+    if (activeEnrollIds.length) {
+      const { data: attData } = await db.from('attendance')
+        .select('enrollment_id, status')
+        .in('enrollment_id', activeEnrollIds);
+      (attData || []).forEach(a => {
+        if (!attMap[a.enrollment_id]) attMap[a.enrollment_id] = { present: 0, absent: 0, justified: 0 };
+        attMap[a.enrollment_id][a.status] = (attMap[a.enrollment_id][a.status] || 0) + 1;
+      });
+    }
+
+    // Situação financeira
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const paymentsWithStatus = payments.map(p => {
+      if (p.status === 'pending' && new Date(p.due_date + 'T00:00:00') < today)
+        return { ...p, status: 'overdue' };
+      return p;
+    });
+    const totalPaid    = payments.filter(p => p.status === 'paid').reduce((s, p) => s + Number(p.amount), 0);
+    const totalPending = paymentsWithStatus.filter(p => p.status !== 'paid').reduce((s, p) => s + Number(p.amount), 0);
+    const hasOverdue   = paymentsWithStatus.some(p => p.status === 'overdue');
 
     openModal('Ficha do Aluno', `
       <div class="detail-grid">
@@ -204,6 +231,19 @@ const StudentsModule = (() => {
         </div>
 
         <div class="detail-section">
+
+          <!-- Resumo financeiro -->
+          ${payments.length ? `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem;">
+            <span class="badge badge-success" style="font-size:11px;padding:3px 9px;">
+              Pago: ${formatCurrency(totalPaid)}
+            </span>
+            <span class="badge badge-${hasOverdue ? 'danger' : 'warning'}" style="font-size:11px;padding:3px 9px;">
+              Em aberto: ${formatCurrency(totalPending)}
+            </span>
+            ${hasOverdue ? `<span class="badge badge-danger" style="font-size:11px;padding:3px 9px;">⚠ Possui parcelas vencidas</span>` : ''}
+          </div>` : ''}
+
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
             <h3 class="detail-section-title" style="margin:0;">Matriculas</h3>
             ${Auth.isAdmin() ? `
@@ -221,6 +261,9 @@ const StudentsModule = (() => {
               const disc  = Number(e.discount || 0);
               const pmt   = Number(e.payment_installments) || 1;
               const installAmt = disc > 0 ? (Number(e.total_value) / pmt - disc) : null;
+              const att   = attMap[e.id];
+              const attTotal = att ? (att.present + att.absent + att.justified) : 0;
+              const attRate  = attTotal > 0 ? Math.round((att.present / attTotal) * 100) : null;
               return `<div class="enrollment-card">
                 <div class="enrollment-card-header">
                   <div>
@@ -233,6 +276,10 @@ const StudentsModule = (() => {
                   Periodo: ${fmtPeriodDisplay(e.period_start, e.period_end)}<br>
                   Carga: ${escapeHtml(e.workload_label || '—')}<br>
                   Valor: ${formatCurrency(e.total_value)} (${e.payment_installments}x)${installAmt !== null ? ` — <span style="color:var(--success);font-size:0.82em">${formatCurrency(installAmt)}/parc. ate dia 12</span>` : ''}
+                  ${attTotal > 0 ? `<br><span style="font-size:0.82em;color:var(--text-muted)">
+                    Frequencia: ${att.present}P ${att.absent}F ${att.justified}J
+                    — <strong style="color:${attRate >= 75 ? 'var(--success)' : 'var(--danger)'}">${attRate}%</strong>
+                  </span>` : ''}
                 </div>
                 ${e.status === 'active' && Auth.isAdmin() ? `<div class="enrollment-actions">
                   <button class="btn btn-secondary btn-sm" onclick="StudentsModule.openEnrollmentEditForm('${e.id}', '${id}')">Editar</button>
@@ -250,12 +297,12 @@ const StudentsModule = (() => {
           })()}
 
           <h3 class="detail-section-title mt-4">Pagamentos</h3>
-          ${payments?.length ? `
+          ${paymentsWithStatus.length ? `
             <div class="table-wrapper mini">
               <table class="data-table">
                 <thead><tr><th>Parc.</th><th>Vencimento</th><th>Valor</th><th>Situacao</th></tr></thead>
                 <tbody>
-                  ${payments.map(p => `<tr>
+                  ${paymentsWithStatus.map(p => `<tr class="${p.status === 'overdue' ? 'tr-overdue' : ''}">
                     <td>${p.installment_number || '—'}</td>
                     <td>${formatDate(p.due_date)}</td>
                     <td>${formatCurrency(p.amount)}</td>
