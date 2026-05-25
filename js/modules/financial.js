@@ -284,8 +284,11 @@ const FinancialModule = (() => {
 
   function filter(status) {
     currentFilter = status;
-    document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
-    event.target.classList.add('active');
+    // Atualiza aba ativa buscando pelo atributo onclick — funciona tanto
+    // quando chamado por clique do usuário quanto programaticamente (ex: modal)
+    document.querySelectorAll('.filter-tab').forEach(t => {
+      t.classList.toggle('active', t.getAttribute('onclick')?.includes(`'${status}'`));
+    });
     renderPaymentsTable();
   }
 
