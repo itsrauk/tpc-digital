@@ -41,8 +41,9 @@ const StudentsModule = (() => {
   }
 
   function renderTable() {
-    const el = document.getElementById('view-content');
-    const isAdmin = Auth.isAdmin();
+    const el        = document.getElementById('view-content');
+    const isAdmin   = Auth.isAdmin();
+    const canManage = Auth.canManageStudents(); // admin + financeiro + secretaria
 
     el.innerHTML = `
       <div class="view-header">
@@ -51,7 +52,7 @@ const StudentsModule = (() => {
           <div class="search-box">
             <input type="text" id="search-students" class="input" placeholder="Buscar por nome...">
           </div>
-          ${isAdmin ? `
+          ${canManage ? `
           <div class="batch-actions" id="batch-actions" style="display:none">
             <button class="btn btn-secondary" onclick="StudentsModule.exportCards()">Carteirinhas</button>
             <button class="btn btn-secondary" onclick="StudentsModule.exportCertificates()">Certificados</button>
@@ -64,7 +65,7 @@ const StudentsModule = (() => {
       <div class="table-wrapper">
         <table class="data-table" id="students-table">
           <thead><tr>
-            ${isAdmin ? '<th class="col-check"><input type="checkbox" id="check-all" onchange="StudentsModule.toggleAll(this)"></th>' : ''}
+            ${canManage ? '<th class="col-check"><input type="checkbox" id="check-all" onchange="StudentsModule.toggleAll(this)"></th>' : ''}
             <th>Aluno</th>
             <th>Matricula (RA)</th>
             <th>Nivel / Curso</th>
@@ -73,7 +74,7 @@ const StudentsModule = (() => {
             <th>Acoes</th>
           </tr></thead>
           <tbody id="students-tbody">
-            ${renderRows(isAdmin)}
+            ${renderRows(isAdmin, canManage)}
           </tbody>
         </table>
         ${allStudents.length === 0 ? '<p class="empty-state">Nenhum aluno encontrado.</p>' : ''}
@@ -87,7 +88,7 @@ const StudentsModule = (() => {
     selectedIds.clear();
   }
 
-  function renderRows(isAdmin) {
+  function renderRows(isAdmin, canManage) {
     return allStudents.map(s => {
       const activeEnrollments = s.enrollments?.filter(e => e.status === 'active') || [];
       const activeEnrollment  = activeEnrollments[0];
@@ -99,7 +100,7 @@ const StudentsModule = (() => {
       const multiEnroll = activeEnrollments.length > 1;
 
       return `<tr data-id="${s.id}">
-        ${isAdmin ? `<td class="col-check">
+        ${canManage ? `<td class="col-check">
           <input type="checkbox" class="row-check" value="${s.id}"
             onchange="StudentsModule.toggleRow(this)">
         </td>` : ''}
@@ -119,10 +120,11 @@ const StudentsModule = (() => {
           <button class="btn-icon" title="Detalhes" onclick="StudentsModule.openDetail('${s.id}')">
             Ver
           </button>
-          ${isAdmin ? `
+          ${canManage ? `
           <button class="btn-icon" title="Editar" onclick="StudentsModule.openForm('${s.id}')">
             Editar
-          </button>
+          </button>` : ''}
+          ${isAdmin ? `
           <button class="btn-icon btn-icon-danger" title="Excluir" onclick="StudentsModule.deleteStudent('${s.id}')">
             Excluir
           </button>` : ''}
@@ -246,7 +248,7 @@ const StudentsModule = (() => {
 
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
             <h3 class="detail-section-title" style="margin:0;">Matriculas</h3>
-            ${Auth.isAdmin() ? `
+            ${Auth.canManageStudents() ? `
             <button class="btn btn-primary btn-sm"
               onclick="StudentsModule.openEnrollmentForm('${id}')">+ Nova Matricula</button>
             ` : ''}
@@ -281,10 +283,10 @@ const StudentsModule = (() => {
                     — <strong style="color:${attRate >= 75 ? 'var(--success)' : 'var(--danger)'}">${attRate}%</strong>
                   </span>` : ''}
                 </div>
-                ${e.status === 'active' && Auth.isAdmin() ? `<div class="enrollment-actions">
+                ${e.status === 'active' && Auth.canManageStudents() ? `<div class="enrollment-actions">
                   <button class="btn btn-secondary btn-sm" onclick="StudentsModule.openEnrollmentEditForm('${e.id}', '${id}')">Editar</button>
                   <button class="btn btn-secondary btn-sm" onclick="StudentsModule.exportEnrollmentContract('${id}', '${e.id}')">Contrato</button>
-                  <button class="btn btn-danger btn-sm" onclick="StudentsModule.cancelEnrollment('${e.id}', '${id}')">Cancelar</button>
+                  ${Auth.isAdmin() ? `<button class="btn btn-danger btn-sm" onclick="StudentsModule.cancelEnrollment('${e.id}', '${id}')">Cancelar</button>` : ''}
                 </div>` : ''}
               </div>`;
             }
@@ -316,7 +318,7 @@ const StudentsModule = (() => {
         </div>
       </div>
 
-      ${Auth.isAdmin() ? `
+      ${Auth.canManageStudents() ? `
       <div class="modal-footer-actions">
         <button class="btn btn-secondary" onclick="StudentsModule.exportStudentCard('${student.id}')">
           Gerar Carteirinha
@@ -327,7 +329,7 @@ const StudentsModule = (() => {
         <button class="btn btn-secondary" onclick="StudentsModule.exportStudentContract('${student.id}')">
           Gerar Contrato
         </button>
-        ${payments?.length ? `
+        ${paymentsWithStatus.length ? `
         <button class="btn btn-secondary" onclick="StudentsModule.openPaymentBookConfig('${student.id}')">
           Gerar Carne
         </button>` : ''}
