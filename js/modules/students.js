@@ -698,14 +698,12 @@ const StudentsModule = (() => {
         await loadStudents();
         return;
       } else {
-        // Gerar RA no cliente
-        const { count, error: countErr } = await db.from('students').select('*', { count: 'exact', head: true });
-        if (countErr) {
-          // RLS bloqueando SELECT — usuário provavelmente não rodou fix_v2.sql
-          throw new Error(`Sem permissão de leitura na tabela students. Execute o arquivo sql/fix_v2.sql no Supabase. (${countErr.message})`);
+        // Gerar RA via função SQL (formato YYYYMMNN — ex: 20260501)
+        const { data: raData, error: raErr } = await db.rpc('generate_student_ra');
+        if (raErr) {
+          throw new Error(`Erro ao gerar RA do aluno. Certifique-se de ter executado sql/fix_v15.sql no Supabase. (${raErr.message})`);
         }
-        const year = new Date().getFullYear();
-        studentData.ra = `${year}${String((count || 0) + 1).padStart(4, '0')}`;
+        studentData.ra = raData;
 
         const { data: newStudents, error: insertErr } = await db.from('students').insert([studentData]).select();
         if (insertErr) {
