@@ -1,6 +1,22 @@
 const SettingsModule = (() => {
   const STORAGE_KEY = 'tpc_pdf_settings';
 
+  const ROLE_LABELS = {
+    admin:     'Administrador',
+    financial: 'Financeiro',
+    secretary: 'Secretaria',
+    teacher:   'Professor',
+  };
+  const ROLE_BADGE = {
+    admin:     'badge-danger',
+    financial: 'badge-success',
+    secretary: 'badge-info',
+    teacher:   'badge-warning',
+  };
+
+  let allUsers = [];
+
+  // ─── Configurações locais ──────────────────────────────────────
   function defaults() {
     return {
       school_name:    'TPC - Teatro Popular de Comedia',
@@ -27,6 +43,7 @@ const SettingsModule = (() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...getSettings(), ...data }));
   }
 
+  // ─── Render principal ──────────────────────────────────────────
   async function render() {
     if (!Auth.isAdmin()) {
       document.getElementById('view-content').innerHTML =
@@ -34,8 +51,16 @@ const SettingsModule = (() => {
       return;
     }
 
-    const cfg = getSettings();
-    const el  = document.getElementById('view-content');
+    document.getElementById('view-content').innerHTML =
+      `<div class="loading-state">Carregando configuracoes...</div>`;
+
+    const [cfg, users] = await Promise.all([
+      Promise.resolve(getSettings()),
+      loadUsers(),
+    ]);
+    allUsers = users;
+
+    const el     = document.getElementById('view-content');
     const states = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS',
                     'MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC',
                     'SP','SE','TO'];
@@ -44,10 +69,11 @@ const SettingsModule = (() => {
       <div class="view-header">
         <h1 class="view-title">Configuracoes</h1>
         <div class="view-actions">
-          <span class="view-subtitle">As configuracoes sao salvas localmente neste navegador.</span>
+          <span class="view-subtitle">As configuracoes de escola sao salvas localmente neste navegador.</span>
         </div>
       </div>
 
+      <!-- ── Informações da escola ──────────────────────────── -->
       <form id="settings-form" onsubmit="SettingsModule.save(event)">
         <div class="form-sections">
 
@@ -126,27 +152,26 @@ const SettingsModule = (() => {
         </div>
       </form>
 
-      <div class="form-section" style="border:1px solid var(--border); border-radius:8px; padding:1.25rem; margin-top:0.5rem;">
-        <h3 class="form-section-title" style="margin-top:0;">Seguranca — Publicacao no GitHub Pages</h3>
-        <p style="color:var(--text-secondary); font-size:0.9rem; line-height:1.7;">
-          Antes de publicar, configure no painel do Supabase:<br>
-          <strong style="color:var(--text-primary)">1.</strong>
-          <code style="background:var(--bg-tertiary);padding:1px 6px;border-radius:4px;">Settings &rarr; API &rarr; Site URL</code>
-          — informe a URL do GitHub Pages (<code>https://seu-usuario.github.io/nome-repo</code>)<br>
-          <strong style="color:var(--text-primary)">2.</strong>
-          <code style="background:var(--bg-tertiary);padding:1px 6px;border-radius:4px;">Authentication &rarr; URL Configuration &rarr; Redirect URLs</code>
-          — adicione <code>https://seu-usuario.github.io/*</code><br>
-          <strong style="color:var(--text-primary)">3.</strong> A chave <code>anon</code> no codigo e publica por design do Supabase — as politicas RLS garantem que so usuarios autenticados acessam os dados.
-        </p>
+      <!-- ── Usuários com acesso ─────────────────────────────── -->
+      <div class="form-section" style="border:1px solid var(--border);border-radius:8px;padding:1.25rem;margin-bottom:1.5rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+          <h3 class="form-section-title" style="margin:0;">Usuarios com Acesso</h3>
+          <button class="btn btn-secondary" style="font-size:12px" onclick="SettingsModule.refreshUsers()">
+            Atualizar lista
+          </button>
+        </div>
+        <div id="users-list-container">
+          ${renderUsersList(allUsers)}
+        </div>
       </div>
 
-      <!-- ── Usuário Financeiro ──────────────────────────────── -->
-      <div class="form-section" id="financial-user-section">
-        <h3 class="form-section-title">Adicionar Usuario com Acesso Financeiro</h3>
+      <!-- ── Adicionar novo usuário ──────────────────────────── -->
+      <div class="form-section" id="add-user-section"
+        style="border:1px solid var(--border);border-radius:8px;padding:1.25rem;margin-bottom:1.5rem;">
+        <h3 class="form-section-title" style="margin-top:0;">Adicionar Novo Usuario</h3>
         <p style="color:var(--text-secondary);font-size:0.9rem;line-height:1.7;margin-bottom:1.25rem;">
-          Usuarios financeiros podem acessar o modulo <strong>Financeiro</strong> (lancamentos,
-          baixa de pagamentos, exportacao de relatorios) mas nao veem alunos, turmas ou salas.
-          O processo e o mesmo que para professores.
+          Usuarios precisam de uma conta no Supabase antes de receber um papel no sistema.
+          Siga os passos abaixo.
         </p>
 
         <div class="detail-section" style="margin-bottom:1.2rem;">
@@ -161,17 +186,26 @@ const SettingsModule = (() => {
 
         <div class="detail-section" style="margin-bottom:1.2rem;">
           <h3 class="detail-section-title">Passo 2 — Preencha os dados</h3>
-          <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+          <div class="form-grid" style="gap:0.75rem;margin-bottom:0.75rem;">
             <div class="form-group">
               <label>Nome do Usuario *</label>
-              <input type="text" id="fin-user-name" class="input"
-                placeholder="Ex: Lucia Financeiro" oninput="SettingsModule.updateFinSQL()">
+              <input type="text" id="add-user-name" class="input"
+                placeholder="Ex: Lucia Financeiro" oninput="SettingsModule.updateAddUserSQL()">
             </div>
             <div class="form-group">
+              <label>Papel *</label>
+              <select id="add-user-role" class="input" onchange="SettingsModule.updateAddUserSQL()">
+                <option value="financial">Financeiro</option>
+                <option value="secretary">Secretaria</option>
+                <option value="teacher">Professor</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+            <div class="form-group span-2">
               <label>User UID (copiado do Supabase) *</label>
-              <input type="text" id="fin-user-uuid" class="input"
+              <input type="text" id="add-user-uuid" class="input"
                 placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                oninput="SettingsModule.updateFinSQL()">
+                oninput="SettingsModule.updateAddUserSQL()">
             </div>
           </div>
         </div>
@@ -184,17 +218,33 @@ const SettingsModule = (() => {
           <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;
                       padding:0.85rem;font-family:monospace;font-size:0.82rem;
                       color:var(--text-primary);white-space:pre-wrap;word-break:break-all;"
-               id="fin-sql-preview">INSERT INTO profiles (id, name, role)
+               id="add-user-sql-preview">INSERT INTO profiles (id, name, role)
 VALUES (
   '— preencha o UID acima —',
   '— preencha o nome acima —',
   'financial'
-);</div>
+)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role;</div>
           <button class="btn btn-secondary" style="margin-top:0.5rem;font-size:0.85rem;"
-            onclick="SettingsModule.copyFinSQL()">
+            onclick="SettingsModule.copyAddUserSQL()">
             Copiar SQL
           </button>
         </div>
+      </div>
+
+      <!-- ── Segurança ───────────────────────────────────────── -->
+      <div class="form-section" style="border:1px solid var(--border); border-radius:8px; padding:1.25rem; margin-bottom:1.5rem;">
+        <h3 class="form-section-title" style="margin-top:0;">Seguranca — Publicacao no GitHub Pages</h3>
+        <p style="color:var(--text-secondary); font-size:0.9rem; line-height:1.7;">
+          Antes de publicar, configure no painel do Supabase:<br>
+          <strong style="color:var(--text-primary)">1.</strong>
+          <code style="background:var(--bg-tertiary);padding:1px 6px;border-radius:4px;">Settings &rarr; API &rarr; Site URL</code>
+          — informe a URL do GitHub Pages (<code>https://seu-usuario.github.io/nome-repo</code>)<br>
+          <strong style="color:var(--text-primary)">2.</strong>
+          <code style="background:var(--bg-tertiary);padding:1px 6px;border-radius:4px;">Authentication &rarr; URL Configuration &rarr; Redirect URLs</code>
+          — adicione <code>https://seu-usuario.github.io/*</code><br>
+          <strong style="color:var(--text-primary)">3.</strong> A chave <code>anon</code> no codigo e publica por design do Supabase — as politicas RLS garantem que so usuarios autenticados acessam os dados.
+        </p>
       </div>
 
       <!-- ── Sandbox ─────────────────────────────────────────── -->
@@ -269,6 +319,152 @@ VALUES (
     `;
   }
 
+  // ─── Lista de usuários ─────────────────────────────────────────
+  async function loadUsers() {
+    const { data, error } = await db
+      .from('profiles')
+      .select('id, name, role')
+      .order('name');
+    if (error) return [];
+    return data || [];
+  }
+
+  function renderUsersList(users) {
+    if (!users.length) {
+      return `<p class="text-secondary" style="font-size:13px">Nenhum usuario encontrado. Execute fix_v18.sql no Supabase.</p>`;
+    }
+
+    const me = Auth.getProfile();
+
+    return `
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead><tr>
+            <th>Nome</th>
+            <th>Papel</th>
+            <th>Acoes</th>
+          </tr></thead>
+          <tbody>
+            ${users.map(u => {
+              const isMe = u.id === me?.id;
+              return `<tr>
+                <td>
+                  ${escapeHtml(u.name || '—')}
+                  ${isMe ? `<span class="badge badge-info" style="font-size:9px;margin-left:6px">voce</span>` : ''}
+                </td>
+                <td>
+                  <span class="badge ${ROLE_BADGE[u.role] || 'badge-secondary'}">
+                    ${ROLE_LABELS[u.role] || u.role}
+                  </span>
+                </td>
+                <td class="actions-cell">
+                  <button class="btn-icon"
+                    onclick="SettingsModule.openEditUser('${u.id}')">
+                    Alterar papel
+                  </button>
+                  ${!isMe ? `
+                  <button class="btn-icon btn-icon-danger"
+                    onclick="SettingsModule.removeUser('${u.id}', '${escapeHtml(u.name || '')}')">
+                    Remover acesso
+                  </button>` : ''}
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  async function refreshUsers() {
+    const container = document.getElementById('users-list-container');
+    if (container) container.innerHTML = `<p class="text-secondary" style="font-size:13px">Atualizando...</p>`;
+    allUsers = await loadUsers();
+    if (container) container.innerHTML = renderUsersList(allUsers);
+  }
+
+  // ─── Editar papel de usuário ───────────────────────────────────
+  function openEditUser(userId) {
+    const user = allUsers.find(u => u.id === userId);
+    if (!user) return;
+
+    openModal(`Alterar papel — ${escapeHtml(user.name || '—')}`, `
+      <div style="margin-bottom:1.25rem;">
+        <label class="form-label" style="display:block;margin-bottom:0.5rem;">Papel atual</label>
+        <span class="badge ${ROLE_BADGE[user.role] || 'badge-secondary'}" style="font-size:13px;padding:4px 10px;">
+          ${ROLE_LABELS[user.role] || user.role}
+        </span>
+      </div>
+
+      <div class="form-group" style="margin-bottom:1.5rem;">
+        <label>Novo papel</label>
+        <select id="edit-role-select" class="input">
+          ${Object.entries(ROLE_LABELS).map(([val, label]) =>
+            `<option value="${val}" ${user.role === val ? 'selected' : ''}>${label}</option>`
+          ).join('')}
+        </select>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="SettingsModule.saveUserRole('${userId}')">
+          Salvar
+        </button>
+      </div>
+    `);
+  }
+
+  async function saveUserRole(userId) {
+    const newRole = document.getElementById('edit-role-select')?.value;
+    if (!newRole) return;
+
+    const { data, error } = await db
+      .from('profiles')
+      .update({ role: newRole })
+      .eq('id', userId)
+      .select('id');
+
+    if (error) return toast('Erro ao alterar papel: ' + error.message, 'error');
+    if (!data?.length) {
+      toast('Sem permissao para alterar. Execute sql/fix_v18.sql no Supabase.', 'error');
+      return;
+    }
+
+    const user = allUsers.find(u => u.id === userId);
+    AuditLog.log('user_updated', 'teacher', userId, user?.name,
+      `Papel alterado para: ${ROLE_LABELS[newRole] || newRole}`);
+
+    toast(`Papel de ${user?.name || 'usuario'} alterado para ${ROLE_LABELS[newRole]}.`, 'success');
+    closeModal();
+    await refreshUsers();
+  }
+
+  // ─── Remover acesso ────────────────────────────────────────────
+  async function removeUser(userId, userName) {
+    const ok = await confirmDialog(
+      `Remover acesso de "${userName}"?\n\nA conta no Supabase permanece, mas o usuario nao conseguira mais entrar no sistema.`
+    );
+    if (!ok) return;
+
+    const { data, error } = await db
+      .from('profiles')
+      .delete()
+      .eq('id', userId)
+      .select('id');
+
+    if (error) return toast('Erro ao remover: ' + error.message, 'error');
+    if (!data?.length) {
+      toast('Sem permissao para remover. Execute sql/fix_v18.sql no Supabase.', 'error');
+      return;
+    }
+
+    AuditLog.log('user_deleted', 'teacher', userId, userName,
+      `Acesso removido: ${userName}`);
+
+    toast(`Acesso de ${userName} removido.`, 'success');
+    await refreshUsers();
+  }
+
+  // ─── Formulário de escola ──────────────────────────────────────
   function save(event) {
     event.preventDefault();
     const fd   = new FormData(event.target);
@@ -277,6 +473,27 @@ VALUES (
     toast('Configuracoes salvas com sucesso.', 'success');
   }
 
+  // ─── SQL de adição de usuário ──────────────────────────────────
+  function updateAddUserSQL() {
+    const name    = document.getElementById('add-user-name')?.value?.trim()  || '— preencha o nome acima —';
+    const uuid    = document.getElementById('add-user-uuid')?.value?.trim()  || '— preencha o UID acima —';
+    const role    = document.getElementById('add-user-role')?.value          || 'financial';
+    const preview = document.getElementById('add-user-sql-preview');
+    if (preview) {
+      preview.textContent =
+        `INSERT INTO profiles (id, name, role)\nVALUES (\n  '${uuid}',\n  '${name}',\n  '${role}'\n)\nON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role;`;
+    }
+  }
+
+  function copyAddUserSQL() {
+    const preview = document.getElementById('add-user-sql-preview');
+    if (!preview) return;
+    navigator.clipboard.writeText(preview.textContent)
+      .then(()  => toast('SQL copiado.', 'success'))
+      .catch(()  => toast('Nao foi possivel copiar. Selecione manualmente.', 'warning'));
+  }
+
+  // ─── Sandbox ───────────────────────────────────────────────────
   async function seedSandbox(btn) {
     btn.disabled    = true;
     btn.textContent = 'Semeando...';
@@ -321,23 +538,17 @@ VALUES (
     }
   }
 
-  function updateFinSQL() {
-    const name    = document.getElementById('fin-user-name')?.value?.trim()  || '— preencha o nome acima —';
-    const uuid    = document.getElementById('fin-user-uuid')?.value?.trim()  || '— preencha o UID acima —';
-    const preview = document.getElementById('fin-sql-preview');
-    if (preview) {
-      preview.textContent =
-        `INSERT INTO profiles (id, name, role)\nVALUES (\n  '${uuid}',\n  '${name}',\n  'financial'\n);`;
-    }
-  }
+  // ─── Compat: funções antigas renomeadas (evita quebrar chamadas residuais) ──
+  function updateFinSQL()  { updateAddUserSQL(); }
+  function copyFinSQL()    { copyAddUserSQL(); }
 
-  function copyFinSQL() {
-    const preview = document.getElementById('fin-sql-preview');
-    if (!preview) return;
-    navigator.clipboard.writeText(preview.textContent)
-      .then(()  => toast('SQL copiado.', 'success'))
-      .catch(()  => toast('Nao foi possivel copiar. Selecione manualmente.', 'warning'));
-  }
-
-  return { render, getSettings, save, seedSandbox, resetSandbox, updateFinSQL, copyFinSQL };
+  return {
+    render, save,
+    loadUsers, refreshUsers, renderUsersList,
+    openEditUser, saveUserRole, removeUser,
+    updateAddUserSQL, copyAddUserSQL,
+    updateFinSQL, copyFinSQL,
+    seedSandbox, resetSandbox,
+    getSettings,
+  };
 })();
