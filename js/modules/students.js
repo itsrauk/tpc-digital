@@ -286,6 +286,7 @@ const StudentsModule = (() => {
                 ${e.status === 'active' && Auth.canManageStudents() ? `<div class="enrollment-actions">
                   <button class="btn btn-secondary btn-sm" onclick="StudentsModule.openEnrollmentEditForm('${e.id}', '${id}')">Editar</button>
                   <button class="btn btn-secondary btn-sm" onclick="StudentsModule.exportEnrollmentContract('${id}', '${e.id}')">Contrato</button>
+                  ${level && e.classes?.courses?.type !== 'production' ? `<button class="btn btn-primary btn-sm" onclick="StudentsModule.openPromoteForm('${id}', '${e.id}')">↑ Promover</button>` : ''}
                   ${Auth.isAdmin() ? `<button class="btn btn-danger btn-sm" onclick="StudentsModule.cancelEnrollment('${e.id}', '${id}')">Cancelar</button>` : ''}
                 </div>` : ''}
               </div>`;
@@ -1319,6 +1320,249 @@ const StudentsModule = (() => {
     }
   }
 
+  // ─── Promoção de nível ──────────────────────────────────────
+  function getNextLevel(currentLevel) {
+    if (!currentLevel) return null;
+    const str = String(currentLevel).trim();
+    // Extrai número no final: "1"→"2", "Infantil 2"→"Infantil 3", "Nível 3"→"Nível 4"
+    const match = str.match(/^(.*?)(\d+)$/);
+    if (match) return match[1] + (parseInt(match[2]) + 1);
+    return null;
+  }
+
+  async function openPromoteForm(studentId, enrollmentId) {
+    const student = allStudents.find(s => s.id === studentId);
+    if (!student) return;
+
+    const { data: enroll } = await db.from('enrollments')
+      .select('*, classes(id, courses(id, name, level, type), profiles(name))')
+      .eq('id', enrollmentId).single();
+    if (!enroll) return toast('Matricula nao encontrada.', 'error');
+
+    const courseName   = enroll.classes?.courses?.name  || enroll.piece_course || '';
+    const currentLevel = enroll.classes?.courses?.level || '';
+    const nextLevel    = getNextLevel(currentLevel);
+    const teacherName  = enroll.classes?.profiles?.name || enroll.responsible_teacher || '';
+
+    const { data: classes } = await db.from('classes')
+      .select('id, day_of_week, schedule, courses(name, level, type), profiles(name)')
+      .eq('status', 'active');
+
+    const allClasses = classes || [];
+    const nextLvlClasses = allClasses.filter(c =>
+      c.courses?.name === courseName &&
+      String(c.courses?.level) === String(nextLevel) &&
+      c.courses?.type !== 'production'
+    );
+    const otherClasses = allClasses.filter(c => !nextLvlClasses.includes(c));
+
+    const autoSelect = nextLvlClasses.find(c => c.profiles?.name === teacherName) || nextLvlClasses[0];
+
+    function classOpt(c, sel) {
+      return `<option value="${c.id}" ${sel ? 'selected' : ''}>
+        ${escapeHtml(c.courses?.name || '—')}${c.courses?.level ? ` Nível ${escapeHtml(String(c.courses.level))}` : ''}
+        — ${escapeHtml(c.profiles?.name || '—')}
+        (${DAYS_PT[c.day_of_week] || c.day_of_week} ${(c.schedule || '').substring(0, 5)})
+      </option>`;
+    }
+
+    const classOptions = [
+      '<option value="">— Selecione a nova turma —</option>',
+      nextLvlClasses.length ? `<optgroup label="${nextLevel ? `Nivel ${escapeHtml(String(nextLevel))} — ${escapeHtml(courseName)}` : 'Sugeridas'}">` : '',
+      ...nextLvlClasses.map(c => classOpt(c, c === autoSelect)),
+      nextLvlClasses.length ? '</optgroup>' : '',
+      `<optgroup label="Outras turmas">`,
+      ...otherClasses.map(c => classOpt(c, false)),
+      '</optgroup>',
+    ].join('');
+
+    const disc = Number(enroll.discount || 0);
+    const WORKLOAD_OPTIONS = ['6 meses', '12 meses', '14 meses', '15 meses', '18 meses', '2 anos'];
+    const workloadSelectOptions = [
+      '<option value="">— Selecione —</option>',
+      ...WORKLOAD_OPTIONS.map(o =>
+        `<option value="${o}" ${enroll.workload_label === o ? 'selected' : ''}>${o}</option>`
+      ),
+      '<option value="Personalizado">Personalizado</option>',
+    ].join('');
+
+    const curLabel  = currentLevel ? `Nível ${escapeHtml(String(currentLevel))}` : 'atual';
+    const nextLabel = nextLevel    ? `Nível ${escapeHtml(String(nextLevel))}`    : 'próximo';
+
+    openModal(`Promover — ${escapeHtml(student.name)}`, `
+      <div style="background:var(--surface-hover);border-radius:8px;padding:12px 16px;margin-bottom:1.25rem;font-size:0.88rem;line-height:1.6;">
+        <strong>Matrícula atual:</strong> ${escapeHtml(courseName)} ${curLabel}<br>
+        Professor: ${escapeHtml(teacherName || '—')} &nbsp;·&nbsp; Período: ${fmtPeriodDisplay(enroll.period_start, enroll.period_end)}
+      </div>
+      <form id="promote-form" onsubmit="StudentsModule.savePromotion(event,'${studentId}','${enrollmentId}')">
+        <div class="form-grid">
+          <div class="form-group span-2">
+            <label>Nova Turma${nextLevel ? ` (${nextLabel})` : ''} *</label>
+            <select name="class_id" class="input" required>
+              ${classOptions}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Inicio do Periodo</label>
+            <input type="month" name="period_start" class="input">
+          </div>
+          <div class="form-group">
+            <label>Fim do Periodo</label>
+            <input type="month" name="period_end" class="input">
+          </div>
+          <div class="form-group">
+            <label>Carga Horaria</label>
+            <select name="workload_select" class="input" onchange="StudentsModule.onWorkloadChange(this)">
+              ${workloadSelectOptions}
+            </select>
+          </div>
+          <div class="form-group" id="workload-custom-group" style="display:none">
+            <label>Carga Personalizada</label>
+            <input type="text" name="workload_custom" class="input" placeholder="Ex: 20 meses">
+          </div>
+          <div class="form-group">
+            <label>Tipo de Desconto *</label>
+            <select name="discount" class="input" onchange="StudentsModule.calcInstallment()">
+              <option value="0"   ${disc===0   ? 'selected':''}>Sem desconto — R$ 250,00</option>
+              <option value="70"  ${disc===70  ? 'selected':''}>Dia de semana (noite) — R$ 180,00</option>
+              <option value="50"  ${disc===50  ? 'selected':''}>Sabado — R$ 200,00</option>
+              <option value="100" ${disc===100 ? 'selected':''}>Dia de semana (tarde) — R$ 150,00</option>
+              <option value="90"  ${disc===90  ? 'selected':''}>Segundo curso / Producao — R$ 160,00</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Valor Total (R$) *</label>
+            <input type="number" name="total_value" class="input" min="0" step="0.01"
+              value="${enroll.total_value || ''}" required
+              oninput="StudentsModule.calcInstallment()">
+          </div>
+          <div class="form-group">
+            <label>Num. de Parcelas *</label>
+            <input type="number" name="payment_installments" class="input" min="1" max="24"
+              required value="${enroll.payment_installments || 1}"
+              oninput="StudentsModule.calcInstallment()">
+          </div>
+          <div class="form-group span-3" id="installment-preview" style="display:none">
+            <div class="installment-display">
+              <span id="installment-num-text"></span>
+              <span class="installment-words" id="installment-word-text"></span>
+            </div>
+          </div>
+          <div class="form-group span-3">
+            <label>Plano de Pagamento / Observacoes</label>
+            <textarea name="payment_plan" class="input textarea" rows="2"
+              placeholder="Descreva o plano acordado"></textarea>
+          </div>
+          <div class="form-group span-3">
+            <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500">
+              <input type="checkbox" name="finish_old" value="1" checked>
+              Encerrar matricula atual (${curLabel}) ao promover
+            </label>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Promover para ${nextLabel}</button>
+        </div>
+      </form>
+    `, true);
+
+    setTimeout(() => StudentsModule.calcInstallment(), 80);
+  }
+
+  async function savePromotion(event, studentId, oldEnrollmentId) {
+    event.preventDefault();
+    const form = event.target;
+    const fd   = new FormData(form);
+    const data = Object.fromEntries(fd.entries());
+
+    const btn = form.querySelector('[type="submit"]');
+    btn.disabled    = true;
+    btn.textContent = 'Promovendo...';
+
+    try {
+      const classId = data.class_id;
+      const { data: classInfo } = await db.from('classes')
+        .select('courses(name, level, type), profiles(name)')
+        .eq('id', classId).single();
+
+      const total        = parseFloat(data.total_value || 0);
+      const discount     = parseFloat(data.discount || 0);
+      const installments = parseInt(data.payment_installments || 1);
+      const discountedInstallment = Math.max(0, (total / installments) - discount);
+
+      const workloadLabel = data.workload_select === 'Personalizado'
+        ? (data.workload_custom || null)
+        : (data.workload_select || null);
+
+      const courseName  = classInfo?.courses?.name  || '';
+      const newLevel    = classInfo?.courses?.level  || '';
+      const teacherName = classInfo?.profiles?.name  || '';
+
+      const enrollmentData = {
+        student_id:           studentId,
+        class_id:             classId,
+        piece_course:         courseName + (newLevel ? ` Nivel ${newLevel}` : ''),
+        period_start:         data.period_start || null,
+        period_end:           data.period_end   || null,
+        workload_label:       workloadLabel,
+        total_value:          total,
+        discount:             discount,
+        responsible_teacher:  teacherName,
+        payment_installments: installments,
+        payment_plan:         data.payment_plan || null,
+        status:               'active',
+      };
+
+      const { data: newEnrollment, error: eErr } = await db.from('enrollments')
+        .insert([enrollmentData]).select();
+      if (eErr) throw eErr;
+
+      // Gera parcelas
+      const now = new Date();
+      const paymentsToInsert = [];
+      for (let i = 0; i < installments; i++) {
+        const dueDate = new Date(now.getFullYear(), now.getMonth() + i, 12);
+        paymentsToInsert.push({
+          enrollment_id:      newEnrollment[0].id,
+          student_id:         studentId,
+          amount:             discountedInstallment,
+          discount_amount:    discount,
+          due_date:           dueDate.toISOString().split('T')[0],
+          status:             'pending',
+          installment_number: i + 1,
+        });
+      }
+      if (paymentsToInsert.length) {
+        await db.from('payments').insert(paymentsToInsert);
+      }
+
+      // Encerra matrícula anterior se solicitado
+      if (data.finish_old) {
+        await db.from('enrollments').update({ status: 'finished' }).eq('id', oldEnrollmentId);
+      }
+
+      const student = allStudents.find(s => s.id === studentId);
+      AuditLog.log('enrollment_promoted', 'enrollment', newEnrollment[0].id, student?.name,
+        `Promocao: ${student?.name} promovido(a) para ${enrollmentData.piece_course} — ${installments}x de ${formatCurrency(discountedInstallment)}`);
+
+      await loadStudents();
+
+      const courseType = classInfo?.courses?.type || 'regular';
+      const updatedStudent = allStudents.find(s => s.id === studentId) || student;
+      showContractPrompt(
+        { ...updatedStudent, id: studentId },
+        { ...enrollmentData, id: newEnrollment[0].id },
+        courseType
+      );
+    } catch (err) {
+      console.error(err);
+      toast('Erro ao promover: ' + (err.message || 'Tente novamente.'), 'error');
+      btn.disabled    = false;
+      btn.textContent = 'Promover';
+    }
+  }
+
   // ─── Gerar contrato a partir da ficha do aluno ────────────
   async function exportStudentContract(id) {
     const student = allStudents.find(s => s.id === id);
@@ -1350,5 +1594,6 @@ const StudentsModule = (() => {
     onWorkloadChange, downloadPendingContract,
     openEnrollmentForm, saveEnrollment, cancelEnrollment, exportEnrollmentContract,
     openEnrollmentEditForm, saveEnrollmentEdit,
+    openPromoteForm, savePromotion,
   };
 })();
