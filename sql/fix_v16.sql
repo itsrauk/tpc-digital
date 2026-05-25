@@ -1,15 +1,12 @@
--- ─── fix_v15.sql ─────────────────────────────────────────────────
--- Cria função generate_student_ra() para RA automático no formato:
---   YYYYMM + sequencial de 3 dígitos por mês  (9 dígitos no total)
---   Ex: 202605001 (maio/2026, 1º aluno do mês)
---       202605002 (maio/2026, 2º aluno do mês)
---       202605430 (maio/2026, 430º aluno do mês)
---       202606001 (junho/2026, 1º aluno do mês)
+-- ─── fix_v16.sql ─────────────────────────────────────────────────
+-- Atualiza função generate_student_ra() para sequencial de 3 dígitos.
+-- Novo formato: YYYYMMNNN (9 dígitos)
+--   Ex: 202605001 (maio/2026, 1º aluno)
+--       202605430 (maio/2026, 430º aluno)
+--       202606001 (junho/2026, 1º aluno)
 --
--- Aguenta até 999 matrículas por mês.
---
--- Se você já rodou uma versão anterior deste arquivo (sequencial de
--- 2 dígitos), rode sql/fix_v16.sql — ele recria a função corretamente.
+-- Aguenta até 999 alunos por mês — suficiente para importação em massa
+-- e uso contínuo do sistema.
 --
 -- Execute no Supabase → SQL Editor → Run.
 -- ─────────────────────────────────────────────────────────────────
