@@ -1,8 +1,9 @@
 const FinancialModule = (() => {
 
-  let allPayments      = [];
-  let currentFilter    = 'due_this_month';
-  let currentMonthFilter = null; // "YYYY-MM" ou null
+  let allPayments        = [];
+  let currentFilter      = 'due_this_month';
+  let currentMonthFilter = null;   // "YYYY-MM" ou null
+  let expandedStudents   = new Set(); // IDs expandidos na view "Em Aberto"
 
   const METHOD_LABELS = { pix: 'PIX', cash: 'Dinheiro', debit: 'Débito' };
   const METHOD_COLORS = { pix: '#22c55e', cash: '#3b82f6', debit: '#a855f7' };
@@ -115,8 +116,9 @@ const FinancialModule = (() => {
         <h2 class="section-title">Lancamentos</h2>
         <div class="filter-tabs">
           <button class="filter-tab ${currentFilter === 'due_this_month' ? 'active' : ''}" onclick="FinancialModule.filter('due_this_month')">${currentMonthFilter ? new Date(currentMonthFilter + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) : 'Vencem esse mes'}</button>
-          <button class="filter-tab ${currentFilter === 'pending'        ? 'active' : ''}" onclick="FinancialModule.filter('pending')">Pendentes</button>
+          <button class="filter-tab ${currentFilter === 'pending'        ? 'active' : ''}" onclick="FinancialModule.filter('pending')" title="Nao pagos do mes atual e proximo mes">Pendentes</button>
           <button class="filter-tab ${currentFilter === 'overdue'        ? 'active' : ''}" onclick="FinancialModule.filter('overdue')">Em Atraso</button>
+          <button class="filter-tab ${currentFilter === 'pending_all'    ? 'active' : ''}" onclick="FinancialModule.filter('pending_all')" title="Todos os nao pagos agrupados por aluno">Em Aberto</button>
           <button class="filter-tab ${currentFilter === 'paid'           ? 'active' : ''}" onclick="FinancialModule.filter('paid')">Pagos</button>
           <button class="filter-tab ${currentFilter === 'all'            ? 'active' : ''}" onclick="FinancialModule.filter('all')">Todos</button>
         </div>
@@ -211,23 +213,43 @@ const FinancialModule = (() => {
 
     // Filtro de status / mês
     if (currentFilter === 'due_this_month') {
-      // Se há filtro de mês, usa ele; senão usa mês atual
       const target = currentMonthFilter ? new Date(currentMonthFilter + '-02') : new Date();
       payments = payments.filter(p => {
         const due = new Date(p.due_date + 'T00:00:00');
         return due.getMonth() === target.getMonth() && due.getFullYear() === target.getFullYear();
       });
+    } else if (currentFilter === 'pending') {
+      // Mês atual + próximo mês não pagos (visão de curto prazo)
+      const ref = currentMonthFilter ? new Date(currentMonthFilter + '-02') : new Date();
+      const curr = { m: ref.getMonth(), y: ref.getFullYear() };
+      const next = curr.m === 11
+        ? { m: 0, y: curr.y + 1 }
+        : { m: curr.m + 1, y: curr.y };
+      payments = payments.filter(p => {
+        if (p.status === 'paid') return false;
+        const due = new Date(p.due_date + 'T00:00:00');
+        return (due.getMonth() === curr.m && due.getFullYear() === curr.y) ||
+               (due.getMonth() === next.m && due.getFullYear() === next.y);
+      });
+    } else if (currentFilter === 'pending_all') {
+      // Todos os não pagos — renderizados agrupados por aluno
+      payments = payments.filter(p => p.status !== 'paid');
+      if (currentMonthFilter) {
+        const target = new Date(currentMonthFilter + '-02');
+        const fy = target.getFullYear(), fm = target.getMonth();
+        payments = payments.filter(p => {
+          const d = new Date(p.due_date + 'T00:00:00');
+          return d.getFullYear() === fy && d.getMonth() === fm;
+        });
+      }
     } else {
       if (currentFilter !== 'all') {
         payments = payments.filter(p => p.status === currentFilter);
       }
-      // Filtro de mês adicional (para status != due_this_month)
       if (currentMonthFilter) {
         const target = new Date(currentMonthFilter + '-02');
-        const fy = target.getFullYear();
-        const fm = target.getMonth();
+        const fy = target.getFullYear(), fm = target.getMonth();
         payments = payments.filter(p => {
-          // Pagos: filtra por data de pagamento; demais: por vencimento
           const dateStr = (currentFilter === 'paid' && p.paid_date) ? p.paid_date : p.due_date;
           if (!dateStr) return false;
           const d = new Date(dateStr + 'T00:00:00');
@@ -243,6 +265,12 @@ const FinancialModule = (() => {
 
     const container = document.getElementById('payments-table');
     if (!container) return;
+
+    // View agrupada por aluno (Em Aberto)
+    if (currentFilter === 'pending_all') {
+      renderGroupedPending(payments, container);
+      return;
+    }
 
     container.innerHTML = `
       <div class="table-wrapper">
@@ -313,6 +341,106 @@ const FinancialModule = (() => {
           </tbody>
         </table>
       </div>`;
+  }
+
+  // ─── View agrupada por aluno (Em Aberto) ─────────────────────
+  function renderGroupedPending(payments, container) {
+    if (!payments.length) {
+      container.innerHTML = `<p class="empty-state" style="padding:2rem">Nenhum lancamento em aberto.</p>`;
+      return;
+    }
+
+    // Agrupa por aluno
+    const byStudent = {};
+    payments.forEach(p => {
+      const sid = p.student_id;
+      if (!byStudent[sid]) byStudent[sid] = {
+        sid, name: p.students?.name || '—', ra: p.students?.ra || '—', payments: []
+      };
+      byStudent[sid].payments.push(p);
+    });
+
+    const students = Object.values(byStudent)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead><tr>
+            <th style="width:32px"></th>
+            <th>Aluno</th>
+            <th>RA</th>
+            <th>Parcelas em Aberto</th>
+            <th>Total em Aberto</th>
+          </tr></thead>
+          <tbody>
+            ${students.map(student => {
+              const isExpanded  = expandedStudents.has(student.sid);
+              const overdueCount = student.payments.filter(p => p.status === 'overdue').length;
+              const total        = student.payments.reduce((s, p) => s + Number(p.amount), 0);
+              const sorted       = [...student.payments].sort((a, b) => a.due_date.localeCompare(b.due_date));
+
+              return `
+                <tr class="student-group-row${overdueCount > 0 ? ' tr-overdue' : ''}"
+                    onclick="FinancialModule.toggleStudent('${student.sid}')"
+                    style="cursor:pointer">
+                  <td style="text-align:center;color:var(--text-muted);font-size:11px;user-select:none">
+                    ${isExpanded ? '▼' : '▶'}
+                  </td>
+                  <td><strong>${escapeHtml(student.name)}</strong></td>
+                  <td class="text-accent">${escapeHtml(student.ra)}</td>
+                  <td>
+                    ${student.payments.length} parcela${student.payments.length !== 1 ? 's' : ''}
+                    ${overdueCount > 0
+                      ? `<span class="badge badge-danger" style="margin-left:6px;font-size:10px">${overdueCount} em atraso</span>`
+                      : ''}
+                  </td>
+                  <td><strong>${formatCurrency(total)}</strong></td>
+                </tr>
+                ${isExpanded ? sorted.map(p => {
+                  const discAmt = Number(p.discount_amount || 0);
+                  const today2  = new Date(); today2.setHours(0,0,0,0);
+                  const due     = new Date(p.due_date + 'T00:00:00');
+                  const pastDay12 = today2.getDate() > 12 && today2 >= new Date(due.getFullYear(), due.getMonth(), 1);
+                  const effAmt  = (p.status !== 'paid' && pastDay12 && discAmt > 0)
+                    ? Number(p.amount) + discAmt : Number(p.amount);
+                  return `
+                    <tr class="${p.status === 'overdue' ? 'tr-overdue' : ''}"
+                        style="background:var(--surface-hover)">
+                      <td></td>
+                      <td colspan="2" style="padding-left:1.75rem;font-size:12px;color:var(--text-secondary)">
+                        ${escapeHtml(p.enrollments?.piece_course || '—')}
+                      </td>
+                      <td style="font-size:12px">
+                        Parc. ${p.installment_number || '?'}/${p.enrollments?.payment_installments || '?'}
+                        &nbsp;·&nbsp; vence ${formatDate(p.due_date)}
+                        &nbsp;·&nbsp;
+                        <span class="badge badge-${p.status === 'overdue' ? 'danger' : 'warning'}"
+                              style="font-size:10px">${STATUS_LABELS[p.status] || p.status}</span>
+                      </td>
+                      <td>
+                        <strong>${formatCurrency(effAmt)}</strong>
+                        <button class="btn-icon" style="margin-left:8px"
+                          onclick="event.stopPropagation();FinancialModule.markPaid('${p.id}',${effAmt})">
+                          Pago
+                        </button>
+                      </td>
+                    </tr>`;
+                }).join('') : ''}
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  function toggleStudent(studentId) {
+    if (expandedStudents.has(studentId)) {
+      expandedStudents.delete(studentId);
+    } else {
+      expandedStudents.add(studentId);
+    }
+    renderPaymentsTable(document.getElementById('search-financial')?.value || '');
   }
 
   function filter(status) {
@@ -539,10 +667,11 @@ const FinancialModule = (() => {
 
     const FILTER_LABELS = {
       due_this_month: 'Vencem esse Mes',
-      pending: 'Pendentes',
-      overdue: 'Em Atraso',
-      paid: 'Pagos',
-      all: 'Todos',
+      pending:        'Pendentes (mes atual + proximo)',
+      overdue:        'Em Atraso',
+      pending_all:    'Em Aberto',
+      paid:           'Pagos',
+      all:            'Todos',
     };
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const overdueMarked = allPayments.map(p =>
@@ -556,6 +685,26 @@ const FinancialModule = (() => {
         const due = new Date(p.due_date + 'T00:00:00');
         return due.getMonth() === target.getMonth() && due.getFullYear() === target.getFullYear();
       });
+    } else if (currentFilter === 'pending') {
+      const ref  = currentMonthFilter ? new Date(currentMonthFilter + '-02') : now;
+      const curr = { m: ref.getMonth(), y: ref.getFullYear() };
+      const next = curr.m === 11 ? { m: 0, y: curr.y + 1 } : { m: curr.m + 1, y: curr.y };
+      paymentsToExport = paymentsToExport.filter(p => {
+        if (p.status === 'paid') return false;
+        const due = new Date(p.due_date + 'T00:00:00');
+        return (due.getMonth() === curr.m && due.getFullYear() === curr.y) ||
+               (due.getMonth() === next.m && due.getFullYear() === next.y);
+      });
+    } else if (currentFilter === 'pending_all') {
+      paymentsToExport = paymentsToExport.filter(p => p.status !== 'paid');
+      if (currentMonthFilter) {
+        const target = new Date(currentMonthFilter + '-02');
+        const fy = target.getFullYear(), fm = target.getMonth();
+        paymentsToExport = paymentsToExport.filter(p => {
+          const d = new Date(p.due_date + 'T00:00:00');
+          return d.getFullYear() === fy && d.getMonth() === fm;
+        });
+      }
     } else {
       if (currentFilter !== 'all') {
         paymentsToExport = paymentsToExport.filter(p => p.status === currentFilter);
@@ -814,7 +963,7 @@ const FinancialModule = (() => {
   }
 
   return {
-    render, filter, setMonthFilter,
+    render, filter, setMonthFilter, toggleStudent,
     markPaid, selectMethod, confirmMarkPaid,
     markPending, openEdit, savePayment, exportReport,
     openInadimplencia, exportInadimplencia,
