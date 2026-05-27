@@ -1,7 +1,8 @@
 const FinancialModule = (() => {
 
-  let allPayments  = [];
-  let currentFilter = 'due_this_month';
+  let allPayments      = [];
+  let currentFilter    = 'due_this_month';
+  let currentMonthFilter = null; // "YYYY-MM" ou null
 
   const METHOD_LABELS = { pix: 'PIX', cash: 'Dinheiro', debit: 'Débito' };
   const METHOD_COLORS = { pix: '#22c55e', cash: '#3b82f6', debit: '#a855f7' };
@@ -113,11 +114,22 @@ const FinancialModule = (() => {
       <div class="section-header mt-6">
         <h2 class="section-title">Lancamentos</h2>
         <div class="filter-tabs">
-          <button class="filter-tab ${currentFilter === 'due_this_month' ? 'active' : ''}" onclick="FinancialModule.filter('due_this_month')">Vencem esse mes</button>
+          <button class="filter-tab ${currentFilter === 'due_this_month' ? 'active' : ''}" onclick="FinancialModule.filter('due_this_month')">${currentMonthFilter ? new Date(currentMonthFilter + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) : 'Vencem esse mes'}</button>
           <button class="filter-tab ${currentFilter === 'pending'        ? 'active' : ''}" onclick="FinancialModule.filter('pending')">Pendentes</button>
           <button class="filter-tab ${currentFilter === 'overdue'        ? 'active' : ''}" onclick="FinancialModule.filter('overdue')">Em Atraso</button>
           <button class="filter-tab ${currentFilter === 'paid'           ? 'active' : ''}" onclick="FinancialModule.filter('paid')">Pagos</button>
           <button class="filter-tab ${currentFilter === 'all'            ? 'active' : ''}" onclick="FinancialModule.filter('all')">Todos</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+          <input type="month" id="filter-month" class="input"
+            style="width:150px;font-size:13px;padding:6px 10px"
+            value="${currentMonthFilter || ''}"
+            onchange="FinancialModule.setMonthFilter(this.value)"
+            title="Filtrar por mes">
+          <button id="btn-clear-month" class="btn-icon"
+            onclick="FinancialModule.setMonthFilter('')"
+            title="Limpar filtro de mes"
+            style="display:${currentMonthFilter ? 'inline-flex' : 'none'};padding:4px 8px">✕</button>
         </div>
         <div class="search-box">
           <input type="text" id="search-financial" class="input" placeholder="Buscar por aluno...">
@@ -127,10 +139,10 @@ const FinancialModule = (() => {
       <div id="payments-table"></div>
     `;
 
-    renderPaymentsTable(overdueIds);
+    renderPaymentsTable();
 
     document.getElementById('search-financial')?.addEventListener('input',
-      debounce(e => renderPaymentsTable(overdueIds, e.target.value))
+      debounce(e => renderPaymentsTable(e.target.value))
     );
   }
 
@@ -185,22 +197,43 @@ const FinancialModule = (() => {
     </div>`;
   }
 
-  function renderPaymentsTable(overdueIds = [], search = '') {
+  function renderPaymentsTable(search = '') {
     let payments = [...allPayments];
+    const today = new Date(); today.setHours(0, 0, 0, 0);
 
+    // Sempre recalcula overdue internamente (não depende de parâmetro externo)
     payments = payments.map(p => {
-      if (overdueIds.includes(p.id)) return { ...p, status: 'overdue' };
+      if (p.status === 'pending' && new Date(p.due_date + 'T00:00:00') < today) {
+        return { ...p, status: 'overdue' };
+      }
       return p;
     });
 
+    // Filtro de status / mês
     if (currentFilter === 'due_this_month') {
-      const now = new Date();
+      // Se há filtro de mês, usa ele; senão usa mês atual
+      const target = currentMonthFilter ? new Date(currentMonthFilter + '-02') : new Date();
       payments = payments.filter(p => {
         const due = new Date(p.due_date + 'T00:00:00');
-        return due.getMonth() === now.getMonth() && due.getFullYear() === now.getFullYear();
+        return due.getMonth() === target.getMonth() && due.getFullYear() === target.getFullYear();
       });
-    } else if (currentFilter !== 'all') {
-      payments = payments.filter(p => p.status === currentFilter);
+    } else {
+      if (currentFilter !== 'all') {
+        payments = payments.filter(p => p.status === currentFilter);
+      }
+      // Filtro de mês adicional (para status != due_this_month)
+      if (currentMonthFilter) {
+        const target = new Date(currentMonthFilter + '-02');
+        const fy = target.getFullYear();
+        const fm = target.getMonth();
+        payments = payments.filter(p => {
+          // Pagos: filtra por data de pagamento; demais: por vencimento
+          const dateStr = (currentFilter === 'paid' && p.paid_date) ? p.paid_date : p.due_date;
+          if (!dateStr) return false;
+          const d = new Date(dateStr + 'T00:00:00');
+          return d.getFullYear() === fy && d.getMonth() === fm;
+        });
+      }
     }
 
     if (search) {
@@ -284,12 +317,26 @@ const FinancialModule = (() => {
 
   function filter(status) {
     currentFilter = status;
-    // Atualiza aba ativa buscando pelo atributo onclick — funciona tanto
-    // quando chamado por clique do usuário quanto programaticamente (ex: modal)
     document.querySelectorAll('.filter-tab').forEach(t => {
       t.classList.toggle('active', t.getAttribute('onclick')?.includes(`'${status}'`));
     });
-    renderPaymentsTable();
+    renderPaymentsTable(document.getElementById('search-financial')?.value || '');
+  }
+
+  function setMonthFilter(val) {
+    currentMonthFilter = val || null;
+    const input = document.getElementById('filter-month');
+    if (input) input.value = val || '';
+    const clearBtn = document.getElementById('btn-clear-month');
+    if (clearBtn) clearBtn.style.display = currentMonthFilter ? 'inline-flex' : 'none';
+    // Atualiza label da aba "Vencem esse mes"
+    const dueTab = document.querySelector('.filter-tab[onclick*="due_this_month"]');
+    if (dueTab) {
+      dueTab.textContent = currentMonthFilter
+        ? new Date(currentMonthFilter + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+        : 'Vencem esse mes';
+    }
+    renderPaymentsTable(document.getElementById('search-financial')?.value || '');
   }
 
   // ─── Registrar pagamento (modal com forma de pagamento) ───────────
@@ -504,12 +551,25 @@ const FinancialModule = (() => {
     );
     let paymentsToExport = [...overdueMarked];
     if (currentFilter === 'due_this_month') {
+      const target = currentMonthFilter ? new Date(currentMonthFilter + '-02') : now;
       paymentsToExport = paymentsToExport.filter(p => {
         const due = new Date(p.due_date + 'T00:00:00');
-        return due.getMonth() === now.getMonth() && due.getFullYear() === now.getFullYear();
+        return due.getMonth() === target.getMonth() && due.getFullYear() === target.getFullYear();
       });
-    } else if (currentFilter !== 'all') {
-      paymentsToExport = paymentsToExport.filter(p => p.status === currentFilter);
+    } else {
+      if (currentFilter !== 'all') {
+        paymentsToExport = paymentsToExport.filter(p => p.status === currentFilter);
+      }
+      if (currentMonthFilter) {
+        const target = new Date(currentMonthFilter + '-02');
+        const fy = target.getFullYear(), fm = target.getMonth();
+        paymentsToExport = paymentsToExport.filter(p => {
+          const dateStr = (currentFilter === 'paid' && p.paid_date) ? p.paid_date : p.due_date;
+          if (!dateStr) return false;
+          const d = new Date(dateStr + 'T00:00:00');
+          return d.getFullYear() === fy && d.getMonth() === fm;
+        });
+      }
     }
     const filterLabel = FILTER_LABELS[currentFilter] || 'Todos';
 
@@ -754,7 +814,7 @@ const FinancialModule = (() => {
   }
 
   return {
-    render, filter,
+    render, filter, setMonthFilter,
     markPaid, selectMethod, confirmMarkPaid,
     markPending, openEdit, savePayment, exportReport,
     openInadimplencia, exportInadimplencia,
