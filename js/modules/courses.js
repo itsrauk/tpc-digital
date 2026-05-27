@@ -117,7 +117,7 @@ const CoursesModule = (() => {
         </div>
         <div class="class-card-footer">
           <span class="student-count">${activeStudents.length} alunos</span>
-          ${activeStudents.length > 0 && Auth.canManageStudents() ? `
+          ${activeStudents.length > 0 ? `
           <button class="btn btn-secondary btn-sm"
             onclick="event.stopPropagation(); CoursesModule.openChamada('${c.id}')">
             Chamada
@@ -180,7 +180,7 @@ const CoursesModule = (() => {
             <h3 class="detail-section-title" style="margin:0;">
               Alunos Matriculados (${activeEnrollments.length})
             </h3>
-            ${activeEnrollments.length && Auth.canManageStudents() ? `
+            ${activeEnrollments.length ? `
             <button class="btn btn-primary btn-sm"
               onclick="CoursesModule.openChamada('${id}')">
               Fazer Chamada
@@ -198,7 +198,7 @@ const CoursesModule = (() => {
                   <td class="text-accent">${escapeHtml(e.students?.ra || '—')}</td>
                   <td>${escapeHtml(e.students?.student_phone || '—')}</td>
                   <td>
-                    ${Auth.canManageStudents() ? `<button class="btn-icon" onclick="CoursesModule.openAttendance('${e.id}', '${id}')">Ver faltas</button>` : '—'}
+                    <button class="btn-icon" onclick="CoursesModule.openAttendance('${e.id}', '${id}')">Ver faltas</button>
                   </td>
                 </tr>`).join('')}
               </tbody>
@@ -211,7 +211,6 @@ const CoursesModule = (() => {
 
   // ─── Chamada em massa ────────────────────────────────────
   async function openChamada(classId) {
-    if (!Auth.canManageStudents()) return;
     const today = new Date().toISOString().split('T')[0];
 
     const { data: cls } = await db.from('classes')
@@ -359,7 +358,6 @@ const CoursesModule = (() => {
 
   // ─── Frequência individual ────────────────────────────────
   async function openAttendance(enrollmentId, classId) {
-    if (!Auth.canManageStudents()) return;
     const today = new Date().toISOString().split('T')[0];
 
     // Busca dados do aluno + todo o histórico
@@ -433,7 +431,6 @@ const CoursesModule = (() => {
   }
 
   async function saveAttendance(enrollmentId, classId) {
-    if (!Auth.canManageStudents()) return;
     const date   = document.getElementById('att-date')?.value;
     const status = document.getElementById('att-status')?.value;
     if (!date) return toast('Selecione a data.', 'warning');

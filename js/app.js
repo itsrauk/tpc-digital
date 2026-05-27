@@ -124,7 +124,7 @@ const Router = (() => {
     // Admin: tudo
     // Financeiro: tudo exceto configurações
     // Secretaria: dashboard, alunos, turmas, salas, reuniões, financeiro (sem totais)
-    // Professor: dashboard, turmas (só as suas, sem chamada/faltas), salas, reuniões
+    // Professor: dashboard, turmas (só as suas, com chamada e frequência), salas, reuniões
     if (view === 'settings' && !Auth.isAdmin()) return;
     if ((view === 'history' || view === 'teachers') && !Auth.isAdminOrFinancial()) return;
     if (view === 'students' && !Auth.canManageStudents()) return;
