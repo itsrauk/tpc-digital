@@ -266,9 +266,9 @@ const FinancialModule = (() => {
     const container = document.getElementById('payments-table');
     if (!container) return;
 
-    // View agrupada por aluno (Em Aberto)
-    if (currentFilter === 'pending_all') {
-      renderGroupedPending(payments, container);
+    // Abas com view agrupada por aluno
+    if (currentFilter === 'pending_all' || currentFilter === 'paid' || currentFilter === 'all') {
+      renderGroupedTable(payments, container);
       return;
     }
 
@@ -343,14 +343,13 @@ const FinancialModule = (() => {
       </div>`;
   }
 
-  // ─── View agrupada por aluno (Em Aberto) ─────────────────────
-  function renderGroupedPending(payments, container) {
+  // ─── View agrupada por aluno (Em Aberto / Pagos / Todos) ────────
+  function renderGroupedTable(payments, container) {
     if (!payments.length) {
-      container.innerHTML = `<p class="empty-state" style="padding:2rem">Nenhum lancamento em aberto.</p>`;
+      container.innerHTML = `<p class="empty-state" style="padding:2rem">Nenhum lancamento.</p>`;
       return;
     }
 
-    // Agrupa por aluno
     const byStudent = {};
     payments.forEach(p => {
       const sid = p.student_id;
@@ -360,8 +359,7 @@ const FinancialModule = (() => {
       byStudent[sid].payments.push(p);
     });
 
-    const students = Object.values(byStudent)
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const students = Object.values(byStudent).sort((a, b) => a.name.localeCompare(b.name));
 
     container.innerHTML = `
       <div class="table-wrapper">
@@ -370,15 +368,23 @@ const FinancialModule = (() => {
             <th style="width:32px"></th>
             <th>Aluno</th>
             <th>RA</th>
-            <th>Parcelas em Aberto</th>
-            <th>Total em Aberto</th>
+            <th>Parcelas</th>
+            <th>Resumo</th>
           </tr></thead>
           <tbody>
             ${students.map(student => {
-              const isExpanded  = expandedStudents.has(student.sid);
+              const isExpanded   = expandedStudents.has(student.sid);
+              const paidList     = student.payments.filter(p => p.status === 'paid');
+              const unpaidList   = student.payments.filter(p => p.status !== 'paid');
               const overdueCount = student.payments.filter(p => p.status === 'overdue').length;
-              const total        = student.payments.reduce((s, p) => s + Number(p.amount), 0);
+              const totalPaid    = paidList.reduce((s, p) => s + Number(p.amount), 0);
+              const totalUnpaid  = unpaidList.reduce((s, p) => s + Number(p.amount), 0);
               const sorted       = [...student.payments].sort((a, b) => a.due_date.localeCompare(b.due_date));
+
+              const summaryHtml = [
+                totalPaid   > 0 ? `<span style="color:var(--success)">${formatCurrency(totalPaid)} pago</span>`       : '',
+                totalUnpaid > 0 ? `<span style="color:var(--warning)">${formatCurrency(totalUnpaid)} em aberto</span>` : '',
+              ].filter(Boolean).join(' &nbsp;·&nbsp; ');
 
               return `
                 <tr class="student-group-row${overdueCount > 0 ? ' tr-overdue' : ''}"
@@ -395,15 +401,20 @@ const FinancialModule = (() => {
                       ? `<span class="badge badge-danger" style="margin-left:6px;font-size:10px">${overdueCount} em atraso</span>`
                       : ''}
                   </td>
-                  <td><strong>${formatCurrency(total)}</strong></td>
+                  <td style="font-size:12px">${summaryHtml}</td>
                 </tr>
                 ${isExpanded ? sorted.map(p => {
-                  const discAmt = Number(p.discount_amount || 0);
-                  const today2  = new Date(); today2.setHours(0,0,0,0);
-                  const due     = new Date(p.due_date + 'T00:00:00');
+                  const discAmt   = Number(p.discount_amount || 0);
+                  const today2    = new Date(); today2.setHours(0,0,0,0);
+                  const due       = new Date(p.due_date + 'T00:00:00');
                   const pastDay12 = today2.getDate() > 12 && today2 >= new Date(due.getFullYear(), due.getMonth(), 1);
-                  const effAmt  = (p.status !== 'paid' && pastDay12 && discAmt > 0)
+                  const effAmt    = (p.status !== 'paid' && pastDay12 && discAmt > 0)
                     ? Number(p.amount) + discAmt : Number(p.amount);
+                  const methodBadge = p.payment_method
+                    ? `<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${METHOD_COLORS[p.payment_method]}22;color:${METHOD_COLORS[p.payment_method]};font-weight:700;border:1px solid ${METHOD_COLORS[p.payment_method]}44;margin-left:4px">${METHOD_LABELS[p.payment_method]}</span>`
+                    : '';
+                  const dateInfo = p.status === 'paid' && p.paid_date
+                    ? `pago em ${formatDate(p.paid_date)}` : `vence ${formatDate(p.due_date)}`;
                   return `
                     <tr class="${p.status === 'overdue' ? 'tr-overdue' : ''}"
                         style="background:var(--surface-hover)">
@@ -413,17 +424,19 @@ const FinancialModule = (() => {
                       </td>
                       <td style="font-size:12px">
                         Parc. ${p.installment_number || '?'}/${p.enrollments?.payment_installments || '?'}
-                        &nbsp;·&nbsp; vence ${formatDate(p.due_date)}
+                        &nbsp;·&nbsp; ${dateInfo}${methodBadge}
                         &nbsp;·&nbsp;
-                        <span class="badge badge-${p.status === 'overdue' ? 'danger' : 'warning'}"
+                        <span class="badge badge-${p.status === 'paid' ? 'success' : p.status === 'overdue' ? 'danger' : 'warning'}"
                               style="font-size:10px">${STATUS_LABELS[p.status] || p.status}</span>
                       </td>
                       <td>
                         <strong>${formatCurrency(effAmt)}</strong>
-                        <button class="btn-icon" style="margin-left:8px"
-                          onclick="event.stopPropagation();FinancialModule.markPaid('${p.id}',${effAmt})">
-                          Pago
-                        </button>
+                        ${p.status !== 'paid'
+                          ? `<button class="btn-icon" style="margin-left:8px"
+                               onclick="event.stopPropagation();FinancialModule.markPaid('${p.id}',${effAmt})">Pago</button>`
+                          : `<button class="btn-icon btn-icon-danger" style="margin-left:8px"
+                               onclick="event.stopPropagation();FinancialModule.markPending('${p.id}')">Estornar</button>`
+                        }
                       </td>
                     </tr>`;
                 }).join('') : ''}
